@@ -3,12 +3,27 @@
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
 import type {
+	DeleteDefinitionsByIdData,
+	DeleteDefinitionsByIdErrors,
+	DeleteDefinitionsByIdResponses,
+	GetDefinitionsByIdData,
+	GetDefinitionsByIdErrors,
+	GetDefinitionsByIdResponses,
 	GetDefinitionsData,
+	GetDefinitionsDomainPoliciesData,
+	GetDefinitionsDomainPoliciesErrors,
+	GetDefinitionsDomainPoliciesResponses,
 	GetDefinitionsErrors,
 	GetDefinitionsResponses,
 	GetDirectivesData,
 	GetDirectivesErrors,
 	GetDirectivesResponses,
+	GetDomainsData,
+	GetDomainsErrors,
+	GetDomainsResponses,
+	PostDefinitionsCreateFromFrontendData,
+	PostDefinitionsCreateFromFrontendErrors,
+	PostDefinitionsCreateFromFrontendResponses,
 	PostDefinitionsSaveData,
 	PostDefinitionsSaveErrors,
 	PostDefinitionsSaveResponses,
@@ -43,6 +58,56 @@ export class Definitions {
 		});
 	}
 
+	public static deleteDefinitionsById<ThrowOnError extends boolean = true>(
+		options: Options<DeleteDefinitionsByIdData, ThrowOnError>,
+	): RequestResult<DeleteDefinitionsByIdResponses, DeleteDefinitionsByIdErrors, ThrowOnError> {
+		return (options.client ?? client).delete<DeleteDefinitionsByIdResponses, DeleteDefinitionsByIdErrors, ThrowOnError>(
+			{
+				security: [{ scheme: 'bearer', type: 'http' }],
+				url: '/umbraco/csp/api/v1/Definitions/{id}',
+				...options,
+			},
+		);
+	}
+
+	public static getDefinitionsById<ThrowOnError extends boolean = true>(
+		options: Options<GetDefinitionsByIdData, ThrowOnError>,
+	): RequestResult<GetDefinitionsByIdResponses, GetDefinitionsByIdErrors, ThrowOnError> {
+		return (options.client ?? client).get<GetDefinitionsByIdResponses, GetDefinitionsByIdErrors, ThrowOnError>({
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/umbraco/csp/api/v1/Definitions/{id}',
+			...options,
+		});
+	}
+
+	public static postDefinitionsCreateFromFrontend<ThrowOnError extends boolean = true>(
+		options?: Options<PostDefinitionsCreateFromFrontendData, ThrowOnError>,
+	): RequestResult<PostDefinitionsCreateFromFrontendResponses, PostDefinitionsCreateFromFrontendErrors, ThrowOnError> {
+		return (options?.client ?? client).post<
+			PostDefinitionsCreateFromFrontendResponses,
+			PostDefinitionsCreateFromFrontendErrors,
+			ThrowOnError
+		>({
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/umbraco/csp/api/v1/Definitions/create-from-frontend',
+			...options,
+		});
+	}
+
+	public static getDefinitionsDomainPolicies<ThrowOnError extends boolean = true>(
+		options?: Options<GetDefinitionsDomainPoliciesData, ThrowOnError>,
+	): RequestResult<GetDefinitionsDomainPoliciesResponses, GetDefinitionsDomainPoliciesErrors, ThrowOnError> {
+		return (options?.client ?? client).get<
+			GetDefinitionsDomainPoliciesResponses,
+			GetDefinitionsDomainPoliciesErrors,
+			ThrowOnError
+		>({
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/umbraco/csp/api/v1/Definitions/domain-policies',
+			...options,
+		});
+	}
+
 	public static postDefinitionsSave<ThrowOnError extends boolean = true>(
 		options: Options<PostDefinitionsSaveData, ThrowOnError>,
 	): RequestResult<PostDefinitionsSaveResponses, PostDefinitionsSaveErrors, ThrowOnError> {
@@ -65,6 +130,18 @@ export class Directives {
 		return (options?.client ?? client).get<GetDirectivesResponses, GetDirectivesErrors, ThrowOnError>({
 			security: [{ scheme: 'bearer', type: 'http' }],
 			url: '/umbraco/csp/api/v1/Directives',
+			...options,
+		});
+	}
+}
+
+export class Domains {
+	public static getDomains<ThrowOnError extends boolean = true>(
+		options?: Options<GetDomainsData, ThrowOnError>,
+	): RequestResult<GetDomainsResponses, GetDomainsErrors, ThrowOnError> {
+		return (options?.client ?? client).get<GetDomainsResponses, GetDomainsErrors, ThrowOnError>({
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/umbraco/csp/api/v1/Domains',
 			...options,
 		});
 	}

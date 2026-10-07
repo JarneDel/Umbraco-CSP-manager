@@ -77,4 +77,55 @@ public class CspDistributedCacheRefresherTests
 		_runtimeCache.Verify(c => c.ClearByKey(Constants.BackOfficeCacheKey), Times.Once);
 		_runtimeCache.Verify(c => c.ClearByKey(Constants.FrontEndCacheKey), Times.Once);
 	}
+
+	[Test]
+	public void Refresh_WithDomainPayload_ClearsOnlyThatDomainsCacheKey()
+	{
+		var domainKey = Guid.NewGuid();
+		var payload = new[] { new CspSavedNotification(new CspDefinition { Id = Guid.NewGuid(), DomainKey = domainKey }) };
+
+		_refresher.Refresh(payload);
+
+		_runtimeCache.Verify(c => c.ClearByKey(Constants.DomainCacheKey(domainKey)), Times.Once);
+		_runtimeCache.Verify(c => c.ClearByKey(Constants.FrontEndCacheKey), Times.Never);
+		_runtimeCache.Verify(c => c.ClearByKey(Constants.BackOfficeCacheKey), Times.Never);
+	}
+
+	[Test]
+	public void RefreshAll_ClearsEveryDomainCacheEntryByPrefix()
+	{
+		_refresher.RefreshAll();
+
+		_runtimeCache.Verify(c => c.ClearByKey(Constants.DomainCacheKeyPrefix), Times.Once);
+	}
+
+	// Against a real cache rather than a mock: ClearByKey must actually reach every domain entry
+	// (it matches on "starts with"), including cached "no policy" results.
+	[Test]
+	public void RefreshAll_WithARealCache_ClearsAllPolicyEntries()
+	{
+		var caches = AppCaches.Create(NoAppCache.Instance);
+		var refresher = new CspDistributedCacheRefresher(
+			caches,
+			Mock.Of<IJsonSerializer>(),
+			NullLogger<CspDistributedCacheRefresher>.Instance,
+			Mock.Of<IEventAggregator>(),
+			Mock.Of<ICacheRefresherNotificationFactory>());
+		var domainA = Constants.DomainCacheKey(Guid.NewGuid());
+		var domainB = Constants.DomainCacheKey(Guid.NewGuid());
+		foreach (var key in new[] { Constants.FrontEndCacheKey, Constants.BackOfficeCacheKey, domainA, domainB })
+		{
+			caches.RuntimeCache.Insert(key, () => Task.FromResult<CspDefinition>(null));
+		}
+
+		refresher.RefreshAll();
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(caches.RuntimeCache.Get(Constants.FrontEndCacheKey), Is.Null);
+			Assert.That(caches.RuntimeCache.Get(Constants.BackOfficeCacheKey), Is.Null);
+			Assert.That(caches.RuntimeCache.Get(domainA), Is.Null);
+			Assert.That(caches.RuntimeCache.Get(domainB), Is.Null);
+		});
+	}
 }

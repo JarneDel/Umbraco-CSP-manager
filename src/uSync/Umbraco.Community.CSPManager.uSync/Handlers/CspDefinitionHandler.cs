@@ -15,7 +15,7 @@ namespace Umbraco.Community.CSPManager.uSync.Handlers;
 
 [SyncHandler("CspDefinitionHandler", "CSP", "CspDefinitions", 3000, Icon = "icon-shield", EntityType = CspManagerConstants.EntityTypes.CspPolicy)]
 public class CspDefinitionHandler : SyncHandlerRoot<CspDefinition, CspDefinition>, ISyncHandler,
-	INotificationAsyncHandler<CspSavedNotification>
+	INotificationAsyncHandler<CspSavedNotification>, INotificationAsyncHandler<CspDeletedNotification>
 {
 	private readonly ICspService _cspService;
 
@@ -59,6 +59,24 @@ public class CspDefinitionHandler : SyncHandlerRoot<CspDefinition, CspDefinition
 	}
 
 	/// <summary>
+	///  writes a delete marker for a deleted domain policy, so importing it elsewhere deletes it there too.
+	/// </summary>
+	public async Task HandleAsync(CspDeletedNotification notification, CancellationToken cancellationToken)
+	{
+		if (!ShouldProcessEvent()) return;
+
+		try
+		{
+			await ExportDeletedItemAsync(notification.CspDefinition, GetDefaultHandlerFolders(), DefaultConfig);
+			Log.CspDeleteExported(logger, notification.CspDefinition.Id);
+		}
+		catch (Exception ex)
+		{
+			Log.CspExportFailed(logger, ex);
+		}
+	}
+
+	/// <summary>
 	///  can be called - if uSync.Complete is attempting to delete items that might not exist on the target.
 	///  we can ignore this, if the things are not directly pushed - normal syncs when things get deleted will
 	///  produce the 'empty' files that delete things.
@@ -78,8 +96,9 @@ public class CspDefinitionHandler : SyncHandlerRoot<CspDefinition, CspDefinition
 
 		var backoffice = await _cspService.GetCspDefinitionAsync(true, CancellationToken.None);
 		var frontend = await _cspService.GetCspDefinitionAsync(false, CancellationToken.None);
-		Log.GetChildItemsResult(logger, backoffice.Id, frontend.Id);
-		return [backoffice, frontend];
+		var domainPolicies = await _cspService.GetAllDomainPoliciesAsync(CancellationToken.None);
+		Log.GetChildItemsResult(logger, backoffice.Id, frontend.Id, domainPolicies.Count);
+		return [backoffice, frontend, .. domainPolicies];
 	}
 
 	/// <summary>
@@ -92,5 +111,5 @@ public class CspDefinitionHandler : SyncHandlerRoot<CspDefinition, CspDefinition
 	protected override async Task<CspDefinition?> GetFromServiceAsync(CspDefinition? item)
 		=> item is null ? null : await _cspService.GetCspDefinitionAsync(item.Id, CancellationToken.None);
 
-	protected override string GetItemName(CspDefinition item) => item.IsBackOffice ? "Backoffice" : "Frontend";
+	protected override string GetItemName(CspDefinition item) => CspItemNames.Name(item);
 }

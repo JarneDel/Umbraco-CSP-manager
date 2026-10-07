@@ -76,7 +76,7 @@ public class CspServiceTests : UmbracoIntegrationTest
 	[Test]
 	public async Task GetCspDefinitionAsync_ByKey_WhenDefinitionExists_ReturnsDefinitionWithSources()
 	{
-		var id = Guid.NewGuid();
+		var id = Constants.DefaultFrontEndId;
 		var definition = new CspDefinition
 		{
 			Id = id,
@@ -114,7 +114,7 @@ public class CspServiceTests : UmbracoIntegrationTest
 	{
 		var originalDefinition = new CspDefinition
 		{
-			Id = Guid.NewGuid(),
+			Id = Constants.DefaultBackofficeId,
 			Enabled = false,
 			IsBackOffice = true,
 			Sources = []
@@ -187,11 +187,11 @@ public class CspServiceTests : UmbracoIntegrationTest
 			.Callback<INotification, CancellationToken>((notification, _) => notificationPublished = true)
 			.Returns(Task.CompletedTask);
 
-		var serviceWithMockEventAggregator = new CspService(mockEventAggregator, ScopeProvider, AppCaches, NullLogger<CspService>.Instance);
+		var serviceWithMockEventAggregator = new CspService(mockEventAggregator, ScopeProvider, AppCaches, NullLogger<CspService>.Instance, GetRequiredService<IDomainService>());
 
 		var definition = new CspDefinition
 		{
-			Id = Guid.NewGuid(),
+			Id = Constants.DefaultFrontEndId,
 			Enabled = true,
 			IsBackOffice = false,
 			Sources = []
@@ -222,7 +222,7 @@ public class CspServiceTests : UmbracoIntegrationTest
 	public async Task GetCachedCspDefinitionAsync_CachesResult()
 	{
 		var caches = AppCaches.Create(NoAppCache.Instance);
-		var service = new CspService(GetRequiredService<IEventAggregator>(), ScopeProvider, caches, NullLogger<CspService>.Instance);
+		var service = new CspService(GetRequiredService<IEventAggregator>(), ScopeProvider, caches, NullLogger<CspService>.Instance, GetRequiredService<IDomainService>());
 
 		await _cspService.SaveCspDefinitionAsync(new CspDefinition
 		{
@@ -256,7 +256,7 @@ public class CspServiceTests : UmbracoIntegrationTest
 	public async Task GetCachedCspDefinitionAsync_ReturnsIndependentCopyPerCall()
 	{
 		var caches = AppCaches.Create(NoAppCache.Instance);
-		var service = new CspService(GetRequiredService<IEventAggregator>(), ScopeProvider, caches, NullLogger<CspService>.Instance);
+		var service = new CspService(GetRequiredService<IEventAggregator>(), ScopeProvider, caches, NullLogger<CspService>.Instance, GetRequiredService<IDomainService>());
 
 		var definition1 = await service.GetCachedCspDefinitionAsync(isBackOfficeRequest: false, CancellationToken.None);
 		definition1.Enabled = true;
@@ -284,7 +284,7 @@ public class CspServiceTests : UmbracoIntegrationTest
 	public async Task GetCachedCspDefinitionAsync_CachesTheLoadBeforeAwaitingIt()
 	{
 		var caches = AppCaches.Create(NoAppCache.Instance);
-		var service = new CspService(GetRequiredService<IEventAggregator>(), ScopeProvider, caches, NullLogger<CspService>.Instance);
+		var service = new CspService(GetRequiredService<IEventAggregator>(), ScopeProvider, caches, NullLogger<CspService>.Instance, GetRequiredService<IDomainService>());
 
 		// Not awaited yet: everything up to the first await has run, including the cache insert.
 		var pending = service.GetCachedCspDefinitionAsync(isBackOfficeRequest: false, CancellationToken.None);
@@ -299,7 +299,7 @@ public class CspServiceTests : UmbracoIntegrationTest
 	public async Task GetCachedCspDefinitionAsync_WhenClearedMidLoad_DoesNotReCacheTheStaleLoad()
 	{
 		var caches = AppCaches.Create(NoAppCache.Instance);
-		var service = new CspService(GetRequiredService<IEventAggregator>(), ScopeProvider, caches, NullLogger<CspService>.Instance);
+		var service = new CspService(GetRequiredService<IEventAggregator>(), ScopeProvider, caches, NullLogger<CspService>.Instance, GetRequiredService<IDomainService>());
 
 		var pending = service.GetCachedCspDefinitionAsync(isBackOfficeRequest: false, CancellationToken.None);
 
@@ -329,7 +329,7 @@ public class CspServiceTests : UmbracoIntegrationTest
 			.Callback<CspSavedNotification, CancellationToken>((notification, _) => handler.Handle(notification))
 			.Returns(Task.CompletedTask);
 
-		var service = new CspService(eventAggregator, ScopeProvider, caches, NullLogger<CspService>.Instance);
+		var service = new CspService(eventAggregator, ScopeProvider, caches, NullLogger<CspService>.Instance, GetRequiredService<IDomainService>());
 
 		await service.GetCachedCspDefinitionAsync(isBackOfficeRequest: false, CancellationToken.None);
 		Assert.That(caches.RuntimeCache.Get(Constants.FrontEndCacheKey), Is.Not.Null);
@@ -380,7 +380,7 @@ public class CspServiceTests : UmbracoIntegrationTest
 	[Test]
 	public async Task Integration_SaveAndRetrieveDefinition()
 	{
-		var definitionId = Guid.NewGuid();
+		var definitionId = Constants.DefaultFrontEndId;
 		var definition = new CspDefinition
 		{
 			Id = definitionId,

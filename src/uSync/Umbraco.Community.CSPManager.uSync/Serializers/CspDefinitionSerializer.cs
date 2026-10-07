@@ -22,9 +22,15 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 	}
 
 	/// <summary>
-	///  delete - you can't delete the csp definitions, so we just ignore this.
+	///  delete - the global definitions can't be deleted, so only domain policies are.
 	/// </summary>
-	public override Task DeleteItemAsync(CspDefinition item) => Task.CompletedTask;
+	public override async Task DeleteItemAsync(CspDefinition item)
+	{
+		if (item.DomainKey is null) return;
+
+		Log.DeleteDomainPolicy(logger, item.Id, ItemAlias(item));
+		await _cspService.DeleteCspDefinitionAsync(item.Id, CancellationToken.None);
+	}
 
 	public override async Task<CspDefinition?> FindItemAsync(Guid key)
 	{
@@ -35,14 +41,17 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 	public override async Task<CspDefinition?> FindItemAsync(string alias)
 	{
 		Log.FindItemByAlias(logger, alias);
-		if (alias.Equals("backoffice", StringComparison.InvariantCultureIgnoreCase))
+		if (alias.Equals(CspItemNames.BackOfficeAlias, StringComparison.InvariantCultureIgnoreCase))
 			return await _cspService.GetCspDefinitionAsync(true, CancellationToken.None);
-		if (alias.Equals("front-end", StringComparison.InvariantCultureIgnoreCase))
+		if (alias.Equals(CspItemNames.FrontEndAlias, StringComparison.InvariantCultureIgnoreCase))
 			return await _cspService.GetCspDefinitionAsync(false, CancellationToken.None);
+		if (alias.StartsWith(CspItemNames.DomainAliasPrefix, StringComparison.InvariantCultureIgnoreCase)
+			&& Guid.TryParse(alias[CspItemNames.DomainAliasPrefix.Length..], out var domainKey))
+			return await _cspService.GetCspDefinitionForDomainAsync(domainKey, CancellationToken.None);
 		return null;
 	}
 
-	public override string ItemAlias(CspDefinition item) => item.IsBackOffice ? "backoffice" : "front-end";
+	public override string ItemAlias(CspDefinition item) => CspItemNames.Alias(item);
 
 	public override Guid ItemKey(CspDefinition item) => item.Id;
 
@@ -54,7 +63,23 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 		var nodeKey = node.GetKey();
 		var alias = node.GetAlias();
 		Log.DeserializeStart(logger, alias, nodeKey);
+
+		var infoNode = node.Element("Info");
+		if (infoNode is null)
+		{
+			return SyncAttempt<CspDefinition>.Fail(alias, ChangeType.Fail, "No Info node");
+		}
+
+		var domainKey = infoNode.Element("DomainKey").ValueOrDefault(Guid.Empty);
 		var definition = await FindItemAsync(nodeKey);
+
+		if (definition is null && domainKey != Guid.Empty)
+		{
+			// The domain may already have a policy created on this environment under another id.
+			// One policy per domain, so update that one rather than fail on a second.
+			definition = await _cspService.GetCspDefinitionForDomainAsync(domainKey, CancellationToken.None);
+		}
+
 		if (definition is null)
 		{
 			if (nodeKey == CspManagerConstants.DefaultBackofficeId || nodeKey == CspManagerConstants.DefaultFrontEndId)
@@ -65,17 +90,27 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 					IsBackOffice = nodeKey == CspManagerConstants.DefaultBackofficeId
 				};
 			}
+			else if (domainKey != Guid.Empty)
+			{
+				// Keeps the source id so later syncs match on key. CspService checks the domain
+				// exists here (import domains first) and that it has no other policy.
+				definition = new CspDefinition
+				{
+					Id = nodeKey,
+					DomainKey = domainKey,
+					IsBackOffice = false
+				};
+			}
 			else
 			{
-				// assuming the two CspDefinition's exist - as we can't create them here?
+				// Only the two global definitions exist without a domain.
 				return SyncAttempt<CspDefinition>.Fail(alias, ChangeType.Fail, "Cannot find CSPDefinition");
 			}
 		}
-
-		var infoNode = node.Element("Info");
-		if (infoNode is null)
+		else if (definition.DomainKey != (domainKey == Guid.Empty ? null : domainKey))
 		{
-			return SyncAttempt<CspDefinition>.Fail(alias, ChangeType.Fail, "No Info node");
+			// An existing definition never changes between global and domain policy, or between domains.
+			return SyncAttempt<CspDefinition>.Fail(alias, ChangeType.Fail, "The CSP definition's domain does not match the existing definition");
 		}
 
 		var details = new List<uSyncChange>();
@@ -84,7 +119,8 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 		details.AddIfUpdated(nameof(definition.Enabled), definition.Enabled, enabled);
 		definition.Enabled = enabled;
 
-		var isBackOffice = infoNode.Element("IsBackOffice").ValueOrDefault(false);
+		// Domain policies are never backoffice policies, whatever the file says.
+		var isBackOffice = definition.DomainKey is null && infoNode.Element("IsBackOffice").ValueOrDefault(false);
 		details.AddIfUpdated(nameof(definition.IsBackOffice), definition.IsBackOffice, isBackOffice);
 		definition.IsBackOffice = isBackOffice;
 
@@ -105,6 +141,23 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 		definition.UpgradeInsecureRequests = upgradeInsecureRequests;
 
 		definition.Sources = DeserializeSources(node, definition, details);
+
+		// The same header rules CspService enforces on save, checked here so an invalid file (e.g. a
+		// source that splices in another directive, or a line break) fails this one item with a
+		// readable reason instead of an exception from the save. Blank sources are dropped on save,
+		// so they don't count.
+		var errors = CspDefinitionValidator.Validate(new CspDefinition
+		{
+			ReportingDirective = definition.ReportingDirective,
+			ReportUri = definition.ReportUri,
+			Sources = [.. definition.Sources.Where(s => !string.IsNullOrWhiteSpace(s.Source))]
+		});
+		if (errors.Count > 0)
+		{
+			var reason = string.Join(" ", errors.Select(e => e.ErrorMessage));
+			Log.DeserializeInvalid(logger, alias, reason);
+			return SyncAttempt<CspDefinition>.Fail(alias, ChangeType.Fail, $"Invalid CSP definition: {reason}");
+		}
 
 		Log.DeserializeComplete(logger, alias, details.Count);
 
@@ -164,6 +217,12 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 			new XElement("ReportingDirective", item.ReportingDirective ?? string.Empty),
 			new XElement("UpgradeInsecureRequests", item.UpgradeInsecureRequests)
 		);
+
+		// Only domain policies carry the element, so the global definitions' files are unchanged.
+		if (item.DomainKey is { } domainKey)
+		{
+			info.Add(new XElement("DomainKey", domainKey));
+		}
 
 		node.Add(info);
 		node.Add(SerializeSources(item));

@@ -21,8 +21,24 @@ export class UmbCspDefinitionContext extends UmbContextBase {
 		return await this.#repository.get(isBackOffice);
 	}
 
+	async loadById(id: string) {
+		return await this.#repository.getById(id);
+	}
+
 	async save(definition: CspApiDefinition) {
 		return await this.#repository.save(definition);
+	}
+
+	async getDomainPolicies() {
+		return await this.#repository.getDomainPolicies();
+	}
+
+	async getDomains() {
+		return await this.#repository.getDomains();
+	}
+
+	async deleteDomainPolicy(id: string) {
+		return await this.#repository.delete(id);
 	}
 }
 

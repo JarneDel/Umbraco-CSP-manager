@@ -30,6 +30,9 @@ export class UmbCspDefaultViewElement extends UmbLitElement {
 	private _invalidSources: Array<string> = [];
 
 	@state()
+	private _isDomainPolicy = false;
+
+	@state()
 	private _expandedSources = new Set<number>();
 
 	@state()
@@ -45,6 +48,7 @@ export class UmbCspDefaultViewElement extends UmbLitElement {
 
 			this.observe(context.state, (state) => {
 				this._workspaceState = state;
+				this._isDomainPolicy = context.isDomainPolicy();
 				if (state.error) {
 					this._invalidSources = state.error.cause as string[];
 				} else {
@@ -224,6 +228,35 @@ export class UmbCspDefaultViewElement extends UmbLitElement {
 		this.#workspaceContext?.updateDefinition(updatedDefinition);
 	}
 
+	// Only what the user can't see elsewhere: why an orphaned policy does nothing, and a link to the
+	// content node the domain belongs to. Text bindings only.
+	private _renderDomainInfo() {
+		const definition = this._workspaceState.definition!;
+		const isOrphaned = !this._workspaceState.isNew && !definition.domainName;
+		if (!isOrphaned && !definition.rootContentKey) {
+			return '';
+		}
+
+		return html`
+			<uui-box class="domain-info" data-mark="csp-domain-info">
+				<div class="domain-info-content">
+					${isOrphaned ? html`<p>${this.localize.term('cspManagerDomainPolicy_orphanedPolicyInfo')}</p>` : ''}
+					${definition.rootContentKey
+						? html`
+								<uui-button
+									look="secondary"
+									href=${`section/content/workspace/document/edit/${encodeURIComponent(definition.rootContentKey)}`}
+									label=${this.localize.term('cspManagerDomainPolicy_openContent')}>
+									<uui-icon name="icon-document"></uui-icon>
+									${this.localize.term('cspManagerDomainPolicy_openContent')}
+								</uui-button>
+							`
+						: ''}
+				</div>
+			</uui-box>
+		`;
+	}
+
 	override render() {
 		if (this._workspaceState.loading) {
 			return html`<uui-loader></uui-loader>`;
@@ -234,6 +267,7 @@ export class UmbCspDefaultViewElement extends UmbLitElement {
 		}
 
 		return html`
+			${this._isDomainPolicy ? this._renderDomainInfo() : ''}
 			<uui-box headline="Directives">
 				<uui-form-layout-item>
 					<uui-label slot="label" for="insecure-requests">Upgrade Insecure Requests</uui-label>
@@ -365,6 +399,23 @@ export class UmbCspDefaultViewElement extends UmbLitElement {
 
 	static styles = [
 		css`
+			.domain-info {
+				border-left: 3px solid var(--uui-color-focus);
+			}
+
+			.domain-info-content {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				gap: var(--uui-size-space-4);
+			}
+
+			.domain-info-content p {
+				margin: 0;
+				flex: 1;
+				color: var(--uui-color-text-alt);
+			}
+
 			:host {
 				display: block;
 				padding: var(--uui-size-layout-1);
