@@ -13,6 +13,8 @@ The CSP Manager provides an intuitive interface for managing Content Security Po
 
 Navigate to the **CSP Management section** in the Umbraco backoffice sidebar to manage both.
 
+A site with several domains can also give a domain its own policy that overrides Frontend. See [Domain Policies](../features/domain-policies).
+
 ## Managing Sources
 
 The UI groups configuration by source first, then lets you select which directives apply to each source. This approach means the same source can cover multiple directives, and different sources can target the same directive.

@@ -1,3 +1,5 @@
+import { DisabledDomainPolicyBehavior } from '@/api';
+
 const packageAlias = 'Umbraco.Community.CSPManager';
 export const CspConstants = {
 	alias: packageAlias,
@@ -26,6 +28,7 @@ export const CspConstants = {
 		conditions: {
 			sectionAlias: 'Umb.Condition.SectionAlias',
 			workspaceAlias: 'Umb.Condition.WorkspaceAlias',
+			entityUnique: 'Umb.Condition.Entity.Unique',
 		},
 	},
 	icons: {
@@ -33,6 +36,19 @@ export const CspConstants = {
 		sources: 'icon-list',
 		settings: 'icon-settings',
 		evaluate: 'icon-locate',
+		domainPolicy: 'icon-link',
+		orphanedDomainPolicy: 'icon-alert',
+	},
+	domainPolicy: {
+		addEntityActionAlias: `${packageAlias}.EntityAction.AddDomainPolicy`,
+		addModalAlias: `${packageAlias}.Modal.AddDomainPolicy`,
+		/** Id a new (unsaved) domain policy is posted with; the server assigns the real one. */
+		newId: '00000000-0000-0000-0000-000000000000',
+		/** DisabledDomainPolicyBehavior values, as serialized by the API (Umbraco 17 sends enum names). */
+		disabledBehavior: {
+			fallbackToGlobal: DisabledDomainPolicyBehavior.FALLBACK_TO_GLOBAL,
+			noHeader: DisabledDomainPolicyBehavior.NO_HEADER,
+		},
 	},
 	weights: {
 		high: 100,
@@ -55,3 +71,7 @@ export const CspConstants = {
 } as const;
 
 export type PolicyType = (typeof CspConstants.policyTypes)[keyof typeof CspConstants.policyTypes];
+
+/** True for the two global policy ids; anything else is a domain policy. */
+export const isGlobalPolicyId = (unique: string | null | undefined): boolean =>
+	unique === CspConstants.policyTypes.frontend.value || unique === CspConstants.policyTypes.backoffice.value;

@@ -6,6 +6,7 @@ export const Selectors = {
 	workspaceEditor: "umb-workspace-editor",
 	dashboard: "umb-csp-section-dashboard",
 	importModal: "umb-csp-import-modal",
+	addDomainPolicyModal: "umb-csp-add-domain-policy-modal",
 	dialogLayout: "uui-dialog-layout",
 	tab: "uui-tab",
 } as const;
@@ -26,6 +27,14 @@ export const DashboardButtons = {
 /** Entity action labels */
 export const EntityActions = {
 	import: "Import...",
+	addDomainPolicy: "Add Domain Policy",
+} as const;
+
+/** Domains seeded on the test site's homepage (uSync/v18/Domains). */
+export const TestDomains = {
+	enGb: "/en-gb",
+	enUs: "/en-us",
+	hostname: "csp-test.localhost:44370",
 } as const;
 
 /**

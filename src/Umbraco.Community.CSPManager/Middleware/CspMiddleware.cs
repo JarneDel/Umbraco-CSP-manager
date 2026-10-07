@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Umbraco.Cms.Core;
 using Umbraco.Cms.Core.Events;
 using Umbraco.Cms.Core.Services;
+using Umbraco.Cms.Core.Web;
 using Umbraco.Community.CSPManager.Extensions;
 using Umbraco.Community.CSPManager.Logging;
 using Umbraco.Community.CSPManager.Models;
@@ -27,6 +28,12 @@ namespace Umbraco.Community.CSPManager.Middleware;
 /// The middleware only runs when Umbraco is in the <see cref="Umbraco.Cms.Core.RuntimeLevel.Run"/> state.
 /// It also respects the <see cref="CspManagerOptions.DisableBackOfficeHeader"/> configuration option.
 /// </para>
+/// <para>
+/// A frontend request that Umbraco routed through a domain (Culture &amp; Hostnames) with a domain
+/// policy gets that policy instead of the global frontend policy. A disabled domain policy follows
+/// <see cref="CspManagerOptions.DisabledDomainPolicyBehavior"/>. Backoffice requests never use
+/// domain policies.
+/// </para>
 /// </remarks>
 public class CspMiddleware
 {
@@ -35,6 +42,7 @@ public class CspMiddleware
 	private readonly ICspService _cspService;
 	private readonly IEventAggregator _eventAggregator;
 	private readonly ILogger<CspMiddleware> _logger;
+	private readonly IUmbracoContextAccessor _umbracoContextAccessor;
 	private CspManagerOptions _cspOptions;
 
 	/// <summary>
@@ -46,19 +54,22 @@ public class CspMiddleware
 	/// <param name="eventAggregator">The event aggregator for publishing notifications.</param>
 	/// <param name="cspOptions">The CSP Manager configuration options.</param>
 	/// <param name="logger">The logger for diagnostic output.</param>
+	/// <param name="umbracoContextAccessor">Gives access to the routed request's domain.</param>
 	public CspMiddleware(
 		RequestDelegate next,
 		IRuntimeState runtimeState,
 		ICspService cspService,
 		IEventAggregator eventAggregator,
 		IOptionsMonitor<CspManagerOptions> cspOptions,
-		ILogger<CspMiddleware> logger)
+		ILogger<CspMiddleware> logger,
+		IUmbracoContextAccessor umbracoContextAccessor)
 	{
 		_next = next;
 		_runtimeState = runtimeState;
 		_cspService = cspService;
 		_eventAggregator = eventAggregator;
 		_logger = logger;
+		_umbracoContextAccessor = umbracoContextAccessor;
 
 		cspOptions.OnChange(config =>
 		{
@@ -101,10 +112,13 @@ public class CspMiddleware
 					return;
 				}
 
+				// Routing has finished by the time the response starts, so the matched domain is known.
+				var definition = isBackOfficeRequest ? null : await GetDomainDefinitionAsync(context);
+
 				// Deliberately not context.RequestAborted: this call populates a process-wide
 				// cache that other in-flight requests await, so one client disconnecting must
 				// not cancel the load and fault the shared entry for everyone else.
-				var definition = await _cspService.GetCachedCspDefinitionAsync(isBackOfficeRequest, CancellationToken.None);
+				definition ??= await _cspService.GetCachedCspDefinitionAsync(isBackOfficeRequest, CancellationToken.None);
 				await _eventAggregator.PublishAsync(new CspWritingNotification(definition, context));
 
 				if (definition is null)
@@ -151,6 +165,47 @@ public class CspMiddleware
 		await _next(context);
 	}
 
+	// Returns the domain policy to apply, or null to use the global frontend policy. A disabled
+	// domain policy is returned (so no header is sent) only when configured with NoHeader.
+	private async Task<CspDefinition?> GetDomainDefinitionAsync(HttpContext context)
+	{
+		try
+		{
+			// Wildcard (culture-only) domains never carry a policy.
+			if (!_umbracoContextAccessor.TryGetUmbracoContext(out var umbracoContext)
+				|| umbracoContext.PublishedRequest?.Domain is not { IsWildcard: false } domain
+				|| string.IsNullOrWhiteSpace(domain.Name))
+			{
+				return null;
+			}
+
+			// Derived from the name, so no lookup is needed to map the routed domain to its policy.
+			var domainKey = CspDomainKey.FromDomainName(domain.Name);
+
+			// Shared cache again, so not context.RequestAborted (see the global lookup).
+			var definition = await _cspService.GetCachedCspDefinitionForDomainAsync(domainKey, CancellationToken.None);
+			if (definition is null)
+			{
+				return null;
+			}
+
+			if (definition.Enabled || _cspOptions.DisabledDomainPolicyBehavior == DisabledDomainPolicyBehavior.NoHeader)
+			{
+				Log.CspDomainPolicyApplied(_logger, definition.Id, domainKey, context.Request.Path);
+				return definition;
+			}
+
+			Log.CspDomainPolicyDisabledFallback(_logger, definition.Id, context.Request.Path);
+			return null;
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException)
+		{
+			// Better the global frontend policy than no policy at all.
+			Log.CspDomainPolicyLookupFailed(_logger, context.Request.Path, ex);
+			return null;
+		}
+	}
+
 	private static string BuildCspHeader(Dictionary<string, string> csp)
 	{
 		if (csp.Count == 0) return string.Empty;
@@ -178,8 +233,23 @@ public class CspMiddleware
 
 		foreach (var source in definition.Sources)
 		{
+			// Saves are validated, but rows stored before that validation existed, or sources a
+			// CspWritingNotification handler added, are not. A control character (CR/LF) makes the
+			// server reject the whole header, so the response would go out with no CSP at all.
+			if (!IsSafeHeaderValue(source.Source))
+			{
+				Log.CspUnsafeHeaderValueSkipped(_logger, definition.Id, "source");
+				continue;
+			}
+
 			foreach (var directive in source.Directives)
 			{
+				if (!IsSafeHeaderValue(directive))
+				{
+					Log.CspUnsafeHeaderValueSkipped(_logger, definition.Id, "directive");
+					continue;
+				}
+
 				if (!emitted.TryGetValue(directive, out var tokens))
 				{
 					tokens = new HashSet<string>(StringComparer.Ordinal);
@@ -199,7 +269,14 @@ public class CspMiddleware
 
 		if (!string.IsNullOrWhiteSpace(definition.ReportingDirective) && !string.IsNullOrWhiteSpace(definition.ReportUri))
 		{
-			csp.TryAdd(definition.ReportingDirective, definition.ReportUri);
+			if (IsSafeHeaderValue(definition.ReportingDirective) && IsSafeHeaderValue(definition.ReportUri))
+			{
+				csp.TryAdd(definition.ReportingDirective, definition.ReportUri);
+			}
+			else
+			{
+				Log.CspUnsafeHeaderValueSkipped(_logger, definition.Id, "reporting directive");
+			}
 		}
 
 		if (definition.UpgradeInsecureRequests)
@@ -229,6 +306,9 @@ public class CspMiddleware
 
 		return csp;
 	}
+
+	private static bool IsSafeHeaderValue(string? value)
+		=> value is not null && !value.Any(char.IsControl);
 
 	// A browser that understands script-src-elem/style-src-elem consults it for <script>/<style>/<link>
 	// and ignores script-src/style-src for those elements; a browser that predates it only knows the

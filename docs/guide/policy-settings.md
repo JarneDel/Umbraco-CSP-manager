@@ -25,13 +25,18 @@ This is useful for:
 
 ## Reporting Directive
 
-Selects which reporting directive is used when a Report URI is configured. Options include `report-uri` (legacy, widely supported) and `report-to` (modern, requires a Reporting API endpoint).
+Selects how violations are reported: **No reporting**, `report-to` (modern, requires a Reporting API endpoint) or `report-uri` (legacy, widely supported).
 
 ## Report URI
 
-The URL to which the browser sends CSP violation reports. The endpoint receives JSON payloads describing what was blocked and why.
+Shown when a reporting directive is selected. For `report-uri`, the URL the browser sends CSP violation reports to: an absolute `http`/`https` URL or a relative path. For `report-to`, the name of an endpoint from your `Reporting-Endpoints` header, such as `csp-endpoint` (letters, digits and ``!#$%&'*+-.^_`|~``).
 
-Leave blank if you do not want to collect violation reports.
+## What a value can contain
+
+Every source, directive and Report URI is written straight into the response header, so each must be a single value: no spaces, `;`, `,` or line breaks. A `;` would start a new directive and a line break makes the server drop the header entirely, so the save is rejected with a message naming the value. The same check applies however the policy is saved: the backoffice, a [uSync](../integrations/usync) import or your own code calling `ICspService`.
+
+{: .note }
+Policies saved before this check existed keep working: the header is built from them as before. If one holds a value that is no longer accepted, the next save asks you to fix it. A stored value with a line break is left out of the header (and logged) instead of losing the whole header.
 
 ## Upgrade Insecure Requests
 

@@ -16,6 +16,9 @@ Raised when the middleware is building a CSP definition for an HTTP request, bef
 - `CspDefinition` — the current CSP definition being applied (may be `null`)
 - `HttpContext` — the current HTTP context
 
+{: .note }
+On a request routed through a domain with a [domain policy](../features/domain-policies), `CspDefinition` is that domain policy. Its `Id` is not `DefaultFrontEndId`, and its `DomainKey` is set. Don't rely on the `Id` to detect frontend requests; check `IsBackOffice` instead.
+
 ```csharp
 using Umbraco.Cms.Core.Events;
 using Umbraco.Community.CSPManager.Models;
@@ -67,9 +70,29 @@ public class CustomCspSavedHandler : INotificationHandler<CspSavedNotification>
 }
 ```
 
+## CspDeletedNotification
+
+Raised after a [domain policy](../features/domain-policies) has been deleted and the deletion committed. The global policies can't be deleted, so this is only raised for domain policies.
+
+**Properties**:
+- `CspDefinition` — the definition as it was before it was deleted
+
+```csharp
+using Umbraco.Cms.Core.Events;
+using Umbraco.Community.CSPManager.Notifications;
+
+public class CustomCspDeletedHandler : INotificationHandler<CspDeletedNotification>
+{
+    public void Handle(CspDeletedNotification notification)
+    {
+        _logger.LogInformation("Domain CSP policy {Id} deleted", notification.CspDefinition.Id);
+    }
+}
+```
+
 ## Cache
 
-CSP Manager caches policies and automatically clears the cache when a policy is saved — including across all servers in a load-balanced environment. No additional configuration is required.
+CSP Manager caches policies and automatically clears the cache when a policy is saved or deleted — including across all servers in a load-balanced environment. No additional configuration is required.
 
 `CspDistCacheRefresherNotification` is raised when the cache is cleared. You can handle it if you need to react to these events, but in most cases you won't need to:
 

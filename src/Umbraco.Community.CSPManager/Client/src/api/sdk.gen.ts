@@ -2,65 +2,169 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { GetUmbracoCspApiV1DefinitionsData, GetUmbracoCspApiV1DefinitionsErrors, GetUmbracoCspApiV1DefinitionsResponses, GetUmbracoCspApiV1DirectivesData, GetUmbracoCspApiV1DirectivesErrors, GetUmbracoCspApiV1DirectivesResponses, PostUmbracoCspApiV1DefinitionsSaveData, PostUmbracoCspApiV1DefinitionsSaveErrors, PostUmbracoCspApiV1DefinitionsSaveResponses } from './types.gen';
+import type {
+	DeleteUmbracoCspApiV1DefinitionsByIdData,
+	DeleteUmbracoCspApiV1DefinitionsByIdErrors,
+	DeleteUmbracoCspApiV1DefinitionsByIdResponses,
+	GetUmbracoCspApiV1DefinitionsByIdData,
+	GetUmbracoCspApiV1DefinitionsByIdErrors,
+	GetUmbracoCspApiV1DefinitionsByIdResponses,
+	GetUmbracoCspApiV1DefinitionsData,
+	GetUmbracoCspApiV1DefinitionsDomainPoliciesData,
+	GetUmbracoCspApiV1DefinitionsDomainPoliciesErrors,
+	GetUmbracoCspApiV1DefinitionsDomainPoliciesResponses,
+	GetUmbracoCspApiV1DefinitionsErrors,
+	GetUmbracoCspApiV1DefinitionsResponses,
+	GetUmbracoCspApiV1DirectivesData,
+	GetUmbracoCspApiV1DirectivesErrors,
+	GetUmbracoCspApiV1DirectivesResponses,
+	GetUmbracoCspApiV1DomainsData,
+	GetUmbracoCspApiV1DomainsErrors,
+	GetUmbracoCspApiV1DomainsResponses,
+	PostUmbracoCspApiV1DefinitionsCreateFromFrontendData,
+	PostUmbracoCspApiV1DefinitionsCreateFromFrontendErrors,
+	PostUmbracoCspApiV1DefinitionsCreateFromFrontendResponses,
+	PostUmbracoCspApiV1DefinitionsSaveData,
+	PostUmbracoCspApiV1DefinitionsSaveErrors,
+	PostUmbracoCspApiV1DefinitionsSaveResponses,
+} from './types.gen';
 
-export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
-    /**
-     * You can provide a client instance returned by `createClient()` instead of
-     * individual options. This might be also useful if you want to implement a
-     * custom client.
-     */
-    client?: Client;
-    /**
-     * You can pass arbitrary values through the `meta` object. This can be
-     * used to access values that aren't defined as part of the SDK function.
-     */
-    meta?: Record<string, unknown>;
+export type Options<
+	TData extends TDataShape = TDataShape,
+	ThrowOnError extends boolean = boolean,
+	TResponse = unknown,
+> = Options2<TData, ThrowOnError, TResponse> & {
+	/**
+	 * You can provide a client instance returned by `createClient()` instead of
+	 * individual options. This might be also useful if you want to implement a
+	 * custom client.
+	 */
+	client?: Client;
+	/**
+	 * You can pass arbitrary values through the `meta` object. This can be
+	 * used to access values that aren't defined as part of the SDK function.
+	 */
+	meta?: Record<string, unknown>;
 };
 
 export class Definitions {
-    public static getUmbracoCspApiV1Definitions<ThrowOnError extends boolean = true>(options?: Options<GetUmbracoCspApiV1DefinitionsData, ThrowOnError>) {
-        return (options?.client ?? client).get<GetUmbracoCspApiV1DefinitionsResponses, GetUmbracoCspApiV1DefinitionsErrors, ThrowOnError>({
-            security: [
-                {
-                    scheme: 'bearer',
-                    type: 'http'
-                }
-            ],
-            url: '/umbraco/csp/api/v1/Definitions',
-            ...options
-        });
-    }
-    
-    public static postUmbracoCspApiV1DefinitionsSave<ThrowOnError extends boolean = true>(options?: Options<PostUmbracoCspApiV1DefinitionsSaveData, ThrowOnError>) {
-        return (options?.client ?? client).post<PostUmbracoCspApiV1DefinitionsSaveResponses, PostUmbracoCspApiV1DefinitionsSaveErrors, ThrowOnError>({
-            security: [
-                {
-                    scheme: 'bearer',
-                    type: 'http'
-                }
-            ],
-            url: '/umbraco/csp/api/v1/Definitions/save',
-            ...options,
-            headers: {
-                'Content-Type': 'application/json',
-                ...options?.headers
-            }
-        });
-    }
+	public static getUmbracoCspApiV1Definitions<ThrowOnError extends boolean = true>(
+		options?: Options<GetUmbracoCspApiV1DefinitionsData, ThrowOnError>,
+	) {
+		return (options?.client ?? client).get<
+			GetUmbracoCspApiV1DefinitionsResponses,
+			GetUmbracoCspApiV1DefinitionsErrors,
+			ThrowOnError
+		>({
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/umbraco/csp/api/v1/Definitions',
+			...options,
+		});
+	}
+
+	public static deleteUmbracoCspApiV1DefinitionsById<ThrowOnError extends boolean = true>(
+		options: Options<DeleteUmbracoCspApiV1DefinitionsByIdData, ThrowOnError>,
+	) {
+		return (options.client ?? client).delete<
+			DeleteUmbracoCspApiV1DefinitionsByIdResponses,
+			DeleteUmbracoCspApiV1DefinitionsByIdErrors,
+			ThrowOnError
+		>({
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/umbraco/csp/api/v1/Definitions/{id}',
+			...options,
+		});
+	}
+
+	public static getUmbracoCspApiV1DefinitionsById<ThrowOnError extends boolean = true>(
+		options: Options<GetUmbracoCspApiV1DefinitionsByIdData, ThrowOnError>,
+	) {
+		return (options.client ?? client).get<
+			GetUmbracoCspApiV1DefinitionsByIdResponses,
+			GetUmbracoCspApiV1DefinitionsByIdErrors,
+			ThrowOnError
+		>({
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/umbraco/csp/api/v1/Definitions/{id}',
+			...options,
+		});
+	}
+
+	public static postUmbracoCspApiV1DefinitionsCreateFromFrontend<ThrowOnError extends boolean = true>(
+		options?: Options<PostUmbracoCspApiV1DefinitionsCreateFromFrontendData, ThrowOnError>,
+	) {
+		return (options?.client ?? client).post<
+			PostUmbracoCspApiV1DefinitionsCreateFromFrontendResponses,
+			PostUmbracoCspApiV1DefinitionsCreateFromFrontendErrors,
+			ThrowOnError
+		>({
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/umbraco/csp/api/v1/Definitions/create-from-frontend',
+			...options,
+		});
+	}
+
+	public static getUmbracoCspApiV1DefinitionsDomainPolicies<ThrowOnError extends boolean = true>(
+		options?: Options<GetUmbracoCspApiV1DefinitionsDomainPoliciesData, ThrowOnError>,
+	) {
+		return (options?.client ?? client).get<
+			GetUmbracoCspApiV1DefinitionsDomainPoliciesResponses,
+			GetUmbracoCspApiV1DefinitionsDomainPoliciesErrors,
+			ThrowOnError
+		>({
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/umbraco/csp/api/v1/Definitions/domain-policies',
+			...options,
+		});
+	}
+
+	public static postUmbracoCspApiV1DefinitionsSave<ThrowOnError extends boolean = true>(
+		options?: Options<PostUmbracoCspApiV1DefinitionsSaveData, ThrowOnError>,
+	) {
+		return (options?.client ?? client).post<
+			PostUmbracoCspApiV1DefinitionsSaveResponses,
+			PostUmbracoCspApiV1DefinitionsSaveErrors,
+			ThrowOnError
+		>({
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/umbraco/csp/api/v1/Definitions/save',
+			...options,
+			headers: {
+				'Content-Type': 'application/json',
+				...options?.headers,
+			},
+		});
+	}
 }
 
 export class Directives {
-    public static getUmbracoCspApiV1Directives<ThrowOnError extends boolean = true>(options?: Options<GetUmbracoCspApiV1DirectivesData, ThrowOnError>) {
-        return (options?.client ?? client).get<GetUmbracoCspApiV1DirectivesResponses, GetUmbracoCspApiV1DirectivesErrors, ThrowOnError>({
-            security: [
-                {
-                    scheme: 'bearer',
-                    type: 'http'
-                }
-            ],
-            url: '/umbraco/csp/api/v1/Directives',
-            ...options
-        });
-    }
+	public static getUmbracoCspApiV1Directives<ThrowOnError extends boolean = true>(
+		options?: Options<GetUmbracoCspApiV1DirectivesData, ThrowOnError>,
+	) {
+		return (options?.client ?? client).get<
+			GetUmbracoCspApiV1DirectivesResponses,
+			GetUmbracoCspApiV1DirectivesErrors,
+			ThrowOnError
+		>({
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/umbraco/csp/api/v1/Directives',
+			...options,
+		});
+	}
+}
+
+export class Domains {
+	public static getUmbracoCspApiV1Domains<ThrowOnError extends boolean = true>(
+		options?: Options<GetUmbracoCspApiV1DomainsData, ThrowOnError>,
+	) {
+		return (options?.client ?? client).get<
+			GetUmbracoCspApiV1DomainsResponses,
+			GetUmbracoCspApiV1DomainsErrors,
+			ThrowOnError
+		>({
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/umbraco/csp/api/v1/Domains',
+			...options,
+		});
+	}
 }

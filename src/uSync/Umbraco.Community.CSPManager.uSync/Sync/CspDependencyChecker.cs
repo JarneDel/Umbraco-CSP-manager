@@ -17,7 +17,7 @@ public class CspDependencyChecker : ISyncDependencyChecker<CspDefinition>
 		return Task.FromResult<IEnumerable<uSyncDependency>>([
 			new uSyncDependency
 			{
-				Name = item.IsBackOffice ? "Backoffice" : "Frontend",
+				Name = CspItemNames.Name(item),
 				Udi = Udi.Create(CspManagerConstants.EntityTypes.CspPolicy, item.Id),
 				Order = 11,
 				Flags = DependencyFlags.None,
