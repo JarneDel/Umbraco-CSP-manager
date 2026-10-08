@@ -1,5 +1,6 @@
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
+using Umbraco.Cms.Core.Services;
 using Umbraco.Community.CSPManager.Models;
 using Umbraco.Community.CSPManager.Services;
 using Umbraco.Community.CSPManager.uSync.Logging;
@@ -13,16 +14,19 @@ namespace Umbraco.Community.CSPManager.uSync.Serializers;
 public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncSerializer<CspDefinition>
 {
 	private readonly ICspService _cspService;
+	private readonly IDomainService _domainService;
 
 	public CspDefinitionSerializer(
 		ILogger<CspDefinitionSerializer> logger,
-		ICspService cspService) : base(logger)
+		ICspService cspService,
+		IDomainService domainService) : base(logger)
 	{
 		_cspService = cspService;
+		_domainService = domainService;
 	}
 
 	/// <summary>
-	///  delete - the global definitions can't be deleted, so only domain policies are.
+	/// Deletes a domain policy. Global definitions cannot be deleted.
 	/// </summary>
 	public override async Task DeleteItemAsync(CspDefinition item)
 	{
@@ -92,8 +96,18 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 			}
 			else if (domainKey != Guid.Empty)
 			{
-				// Keeps the source id so later syncs match on key. CspService checks the domain
-				// exists here (import domains first) and that it has no other policy.
+				// CspService refuses a new policy for a domain this site doesn't have, but by throwing
+				// from the save. Checked here so the item fails with a reason instead (e.g. a Settings
+				// import before the Content import that brings the domains, or a hostname that differs
+				// on this environment).
+				if (!await DomainExistsAsync(domainKey))
+				{
+					const string reason = "Its domain doesn't exist on this site. Import the domain (Culture and Hostnames) first, or check the hostname is the same here.";
+					Log.DeserializeInvalid(logger, alias, reason);
+					return SyncAttempt<CspDefinition>.Fail(alias, ChangeType.Fail, reason);
+				}
+
+				// Keeps the source id so later syncs match on key.
 				definition = new CspDefinition
 				{
 					Id = nodeKey,
@@ -162,6 +176,12 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 		Log.DeserializeComplete(logger, alias, details.Count);
 
 		return SyncAttempt<CspDefinition>.Succeed(ItemAlias(definition), definition, ChangeType.Import, details);
+	}
+
+	private async Task<bool> DomainExistsAsync(Guid domainKey)
+	{
+		var domains = await _domainService.GetAllAsync(includeWildcards: false);
+		return domains.Any(d => !string.IsNullOrWhiteSpace(d.DomainName) && CspDomainKey.FromDomainName(d.DomainName) == domainKey);
 	}
 
 	private static List<CspDefinitionSource> DeserializeSources(XElement node, CspDefinition definition, List<uSyncChange> details)

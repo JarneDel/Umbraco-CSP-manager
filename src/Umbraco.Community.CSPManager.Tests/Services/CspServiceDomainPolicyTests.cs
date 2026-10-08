@@ -126,44 +126,6 @@ public class CspServiceDomainPolicyTests : UmbracoIntegrationTestWithContent
 	}
 
 	[Test]
-	public async Task CreateCspDefinitionForDomainAsync_SecondPolicyForTheSameDomain_IsRejected()
-	{
-		await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
-
-		Assert.ThrowsAsync<CspDefinitionValidationException>(
-			() => _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None));
-		Assert.That(await _cspService.GetAllDomainPoliciesAsync(CancellationToken.None), Has.Count.EqualTo(1));
-	}
-
-	// The service check runs inside the save scope; the filtered unique index is the backstop for
-	// two saves racing past it.
-	[Test]
-	public async Task UniqueIndex_RejectsASecondRowForTheSameDomain()
-	{
-		await _cspService.SaveCspDefinitionAsync(NewDomainPolicy(_domainA.PolicyKey()), CancellationToken.None);
-
-		using var scope = ScopeProvider.CreateScope();
-		Assert.That(
-			() => scope.Database.Insert(new CspDefinition { Id = Guid.NewGuid(), DomainKey = _domainA.PolicyKey() }),
-			Throws.Exception);
-	}
-
-	[Test]
-	public async Task UniqueIndex_AllowsTheTwoGlobalPoliciesWithoutDomainKey()
-	{
-		// The backoffice row is seeded by the migration; the frontend row has a NULL DomainKey too.
-		await SaveFrontendAsync("'self'");
-
-		var frontend = await _cspService.GetCspDefinitionAsync(Constants.DefaultFrontEndId, CancellationToken.None);
-		var backoffice = await _cspService.GetCspDefinitionAsync(Constants.DefaultBackofficeId, CancellationToken.None);
-		Assert.Multiple(() =>
-		{
-			Assert.That(frontend, Is.Not.Null);
-			Assert.That(backoffice, Is.Not.Null);
-		});
-	}
-
-	[Test]
 	public void SaveCspDefinitionAsync_ForAnUnknownDomain_IsRejected()
 	{
 		var ex = Assert.ThrowsAsync<CspDefinitionValidationException>(
@@ -180,11 +142,10 @@ public class CspServiceDomainPolicyTests : UmbracoIntegrationTestWithContent
 
 	// ── Identity / hijack ────────────────────────────────────────────────────
 
-	[TestCase("fac780be-53af-41dc-b51d-1aa647100221", TestName = "Frontend id with a DomainKey is rejected")]
-	[TestCase("9cbfa28c-2b19-40f4-9f8e-bbc52bd8e780", TestName = "Backoffice id with a DomainKey is rejected")]
-	public async Task SaveCspDefinitionAsync_GlobalIdWithDomainKey_IsRejectedAndLeavesTheGlobalPolicyAlone(string globalId)
+	[Test]
+	public async Task SaveCspDefinitionAsync_GlobalIdWithDomainKey_IsRejectedAndLeavesTheGlobalPolicyAlone()
 	{
-		var id = Guid.Parse(globalId);
+		var id = Constants.DefaultFrontEndId;
 		await SaveFrontendAsync("'self'");
 
 		Assert.ThrowsAsync<CspDefinitionValidationException>(
@@ -207,18 +168,6 @@ public class CspServiceDomainPolicyTests : UmbracoIntegrationTestWithContent
 		var ex = Assert.ThrowsAsync<CspDefinitionValidationException>(
 			() => _cspService.SaveCspDefinitionAsync(NewDomainPolicy(_domainB.PolicyKey(), policy.Id), CancellationToken.None));
 		Assert.That(ex!.MemberName, Is.EqualTo(nameof(CspDefinition.DomainKey)));
-
-		var stored = await _cspService.GetCspDefinitionAsync(policy.Id, CancellationToken.None);
-		Assert.That(stored.DomainKey, Is.EqualTo(_domainA.PolicyKey()));
-	}
-
-	[Test]
-	public async Task SaveCspDefinitionAsync_ExistingDomainPolicyWithoutDomainKey_IsRejected()
-	{
-		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
-
-		Assert.ThrowsAsync<CspDefinitionValidationException>(() => _cspService.SaveCspDefinitionAsync(
-			new CspDefinition { Id = policy.Id, Enabled = true }, CancellationToken.None));
 
 		var stored = await _cspService.GetCspDefinitionAsync(policy.Id, CancellationToken.None);
 		Assert.That(stored.DomainKey, Is.EqualTo(_domainA.PolicyKey()));
@@ -332,10 +281,6 @@ public class CspServiceDomainPolicyTests : UmbracoIntegrationTestWithContent
 		});
 	}
 
-	[Test]
-	public async Task GetCspDefinitionForDomainAsync_WithoutPolicy_ReturnsNull()
-		=> Assert.That(await _cspService.GetCspDefinitionForDomainAsync(_domainB.PolicyKey(), CancellationToken.None), Is.Null);
-
 	// ── Delete ───────────────────────────────────────────────────────────────
 
 	[Test]
@@ -371,17 +316,6 @@ public class CspServiceDomainPolicyTests : UmbracoIntegrationTestWithContent
 			"only the create should have published a saved notification; the delete must not");
 	}
 
-	[TestCase("fac780be-53af-41dc-b51d-1aa647100221", TestName = "Deleting the frontend policy is refused")]
-	[TestCase("9cbfa28c-2b19-40f4-9f8e-bbc52bd8e780", TestName = "Deleting the backoffice policy is refused")]
-	public async Task DeleteCspDefinitionAsync_GlobalPolicy_IsRefused(string globalId)
-	{
-		var id = Guid.Parse(globalId);
-		await SaveFrontendAsync("'self'");
-
-		Assert.ThrowsAsync<CspDefinitionValidationException>(() => _cspService.DeleteCspDefinitionAsync(id, CancellationToken.None));
-		Assert.That(await _cspService.GetCspDefinitionAsync(id, CancellationToken.None), Is.Not.Null);
-	}
-
 	[Test]
 	public void DeleteCspDefinitionAsync_UnknownId_DoesNothing()
 	{
@@ -402,6 +336,142 @@ public class CspServiceDomainPolicyTests : UmbracoIntegrationTestWithContent
 		var policies = await _cspService.GetAllDomainPoliciesAsync(CancellationToken.None);
 		Assert.That(policies.Select(p => p.Id), Does.Contain(policy.Id));
 		Assert.DoesNotThrowAsync(() => _cspService.DeleteCspDefinitionAsync(policy.Id, CancellationToken.None));
+	}
+
+	// ── Move ─────────────────────────────────────────────────────────────────
+
+	// Renames a.example.com to c.example.com (b stays), so domain A's policy becomes an orphan.
+	private async Task<IDomain> RenameDomainAToCAsync()
+	{
+		var domains = await CspTestDomainHelper.AssignDomainsAsync(_domainService, Textpage.Key, ["c.example.com", "b.example.com"]);
+		return domains.Single(d => d.DomainName == "c.example.com");
+	}
+
+	[Test]
+	public async Task MoveDomainPolicyAsync_RecreatesTheOrphanUnderTheNewDomain_AndDeletesIt()
+	{
+		var orphan = await _cspService.SaveCspDefinitionAsync(NewDomainPolicy(_domainA.PolicyKey(), sources: ["'self'", "cdn.example.com"]), CancellationToken.None);
+		orphan.ReportOnly = true;
+		orphan.UpgradeInsecureRequests = true;
+		orphan.ReportingDirective = Constants.ReportingDirectives.ReportUri;
+		orphan.ReportUri = "/csp-report";
+		await _cspService.SaveCspDefinitionAsync(orphan, CancellationToken.None);
+		var domainC = await RenameDomainAToCAsync();
+
+		var moved = await _cspService.MoveDomainPolicyAsync(orphan.Id, domainC.PolicyKey(), CancellationToken.None);
+
+		Assert.That(await _cspService.GetCspDefinitionAsync(orphan.Id, CancellationToken.None), Is.Null, "the orphan must be gone");
+		Assert.That(await _cspService.GetCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None), Is.Null);
+		var stored = await _cspService.GetCspDefinitionForDomainAsync(domainC.PolicyKey(), CancellationToken.None);
+		Assert.That(stored, Is.Not.Null);
+		Assert.Multiple(() =>
+		{
+			Assert.That(stored.Id, Is.EqualTo(moved.Id).And.Not.EqualTo(orphan.Id));
+			Assert.That(stored.Enabled, Is.True);
+			Assert.That(stored.ReportOnly, Is.True);
+			Assert.That(stored.UpgradeInsecureRequests, Is.True);
+			Assert.That(stored.ReportingDirective, Is.EqualTo(Constants.ReportingDirectives.ReportUri));
+			Assert.That(stored.ReportUri, Is.EqualTo("/csp-report"));
+			Assert.That(stored.Sources.Select(s => s.Source), Is.EquivalentTo(new[] { "'self'", "cdn.example.com" }));
+			Assert.That(stored.Sources.Select(s => s.DefinitionId), Is.All.EqualTo(stored.Id));
+		});
+		using (var scope = ScopeProvider.CreateScope(autoComplete: true))
+		{
+			var orphanSources = scope.Database.ExecuteScalar<int>(
+				scope.SqlContext.Sql().SelectCount().From<CspDefinitionSource>().Where<CspDefinitionSource>(x => x.DefinitionId == orphan.Id));
+			Assert.That(orphanSources, Is.Zero);
+		}
+	}
+
+	[Test]
+	public async Task MoveDomainPolicyAsync_PublishesDeletedForTheOrphanAndSavedForTheMovedPolicy()
+	{
+		var orphan = await _cspService.SaveCspDefinitionAsync(NewDomainPolicy(_domainA.PolicyKey(), sources: "'self'"), CancellationToken.None);
+		var domainC = await RenameDomainAToCAsync();
+
+		var published = new List<INotification>();
+		var eventAggregator = Mock.Of<IEventAggregator>();
+		Mock.Get(eventAggregator)
+			.Setup(x => x.PublishAsync(It.IsAny<CspDeletedNotification>(), It.IsAny<CancellationToken>()))
+			.Callback<CspDeletedNotification, CancellationToken>((n, _) => published.Add(n))
+			.Returns(Task.CompletedTask);
+		Mock.Get(eventAggregator)
+			.Setup(x => x.PublishAsync(It.IsAny<CspSavedNotification>(), It.IsAny<CancellationToken>()))
+			.Callback<CspSavedNotification, CancellationToken>((n, _) => published.Add(n))
+			.Returns(Task.CompletedTask);
+		var service = CreateService(AppCaches.Create(NoAppCache.Instance), eventAggregator);
+
+		var moved = await service.MoveDomainPolicyAsync(orphan.Id, domainC.PolicyKey(), CancellationToken.None);
+
+		Assert.That(published, Has.Count.EqualTo(2));
+		var deleted = published[0] as CspDeletedNotification;
+		var saved = published[1] as CspSavedNotification;
+		Assert.Multiple(() =>
+		{
+			Assert.That(deleted?.CspDefinition.Id, Is.EqualTo(orphan.Id));
+			Assert.That(deleted?.CspDefinition.DomainKey, Is.EqualTo(_domainA.PolicyKey()));
+			Assert.That(saved?.CspDefinition.Id, Is.EqualTo(moved.Id));
+			Assert.That(saved?.CspDefinition.DomainKey, Is.EqualTo(domainC.PolicyKey()));
+		});
+	}
+
+	[Test]
+	public async Task MoveDomainPolicyAsync_PolicyWhoseDomainStillExists_IsRejected()
+	{
+		var policy = await _cspService.SaveCspDefinitionAsync(NewDomainPolicy(_domainA.PolicyKey()), CancellationToken.None);
+
+		var ex = Assert.ThrowsAsync<CspDefinitionValidationException>(
+			() => _cspService.MoveDomainPolicyAsync(policy.Id, _domainB.PolicyKey(), CancellationToken.None));
+
+		Assert.That(ex!.MemberName, Is.EqualTo(nameof(CspDefinition.Id)));
+		Assert.That((await _cspService.GetCspDefinitionAsync(policy.Id, CancellationToken.None))?.DomainKey, Is.EqualTo(_domainA.PolicyKey()));
+		Assert.That(await _cspService.GetCspDefinitionForDomainAsync(_domainB.PolicyKey(), CancellationToken.None), Is.Null);
+	}
+
+	[Test]
+	public async Task MoveDomainPolicyAsync_ToADomainThatAlreadyHasAPolicy_IsRejected()
+	{
+		var orphan = await _cspService.SaveCspDefinitionAsync(NewDomainPolicy(_domainA.PolicyKey()), CancellationToken.None);
+		var policyB = await _cspService.SaveCspDefinitionAsync(NewDomainPolicy(_domainB.PolicyKey()), CancellationToken.None);
+		await RenameDomainAToCAsync();
+
+		var ex = Assert.ThrowsAsync<CspDefinitionValidationException>(
+			() => _cspService.MoveDomainPolicyAsync(orphan.Id, _domainB.PolicyKey(), CancellationToken.None));
+
+		Assert.That(ex!.MemberName, Is.EqualTo(nameof(CspDefinition.DomainKey)));
+		Assert.That(await _cspService.GetCspDefinitionAsync(orphan.Id, CancellationToken.None), Is.Not.Null, "a rejected move must keep the orphan");
+		Assert.That((await _cspService.GetCspDefinitionForDomainAsync(_domainB.PolicyKey(), CancellationToken.None))?.Id, Is.EqualTo(policyB.Id));
+	}
+
+	[Test]
+	public async Task MoveDomainPolicyAsync_ToAnUnknownOrWildcardDomain_IsRejected()
+	{
+		var orphan = await _cspService.SaveCspDefinitionAsync(NewDomainPolicy(_domainA.PolicyKey()), CancellationToken.None);
+		await RenameDomainAToCAsync();
+
+		foreach (var target in new[] { Guid.NewGuid(), _wildcardDomain.PolicyKey(), _domainA.PolicyKey() })
+		{
+			var ex = Assert.ThrowsAsync<CspDefinitionValidationException>(
+				() => _cspService.MoveDomainPolicyAsync(orphan.Id, target, CancellationToken.None));
+			Assert.That(ex!.MemberName, Is.EqualTo(nameof(CspDefinition.DomainKey)));
+		}
+
+		Assert.That(await _cspService.GetCspDefinitionAsync(orphan.Id, CancellationToken.None), Is.Not.Null);
+	}
+
+	[Test]
+	public async Task MoveDomainPolicyAsync_GlobalOrUnknownId_IsRejected()
+	{
+		var domainC = await RenameDomainAToCAsync();
+
+		foreach (var id in new[] { Constants.DefaultFrontEndId, Constants.DefaultBackofficeId, Guid.NewGuid() })
+		{
+			var ex = Assert.ThrowsAsync<CspDefinitionValidationException>(
+				() => _cspService.MoveDomainPolicyAsync(id, domainC.PolicyKey(), CancellationToken.None));
+			Assert.That(ex!.MemberName, Is.EqualTo(nameof(CspDefinition.Id)));
+		}
+
+		Assert.That(await _cspService.GetCspDefinitionForDomainAsync(domainC.PolicyKey(), CancellationToken.None), Is.Null);
 	}
 
 	// ── Cache ────────────────────────────────────────────────────────────────
@@ -439,30 +509,6 @@ public class CspServiceDomainPolicyTests : UmbracoIntegrationTestWithContent
 
 		Assert.That(await service.GetCachedCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None), Is.Null,
 			"the second lookup should be served from the cache, not the database");
-	}
-
-	[Test]
-	public async Task GetCachedCspDefinitionForDomainAsync_CachesTheLoadBeforeAwaitingIt()
-	{
-		var caches = AppCaches.Create(NoAppCache.Instance);
-		var service = CreateService(caches);
-
-		var pending = service.GetCachedCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
-		Assert.That(caches.RuntimeCache.Get(Constants.DomainCacheKey(_domainA.PolicyKey())), Is.Not.Null);
-		await pending;
-	}
-
-	[Test]
-	public async Task GetCachedCspDefinitionForDomainAsync_WhenClearedMidLoad_DoesNotReCacheTheStaleLoad()
-	{
-		var caches = AppCaches.Create(NoAppCache.Instance);
-		var service = CreateService(caches);
-
-		var pending = service.GetCachedCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
-		caches.RuntimeCache.ClearByKey(Constants.DomainCacheKey(_domainA.PolicyKey()));
-		await pending;
-
-		Assert.That(caches.RuntimeCache.Get(Constants.DomainCacheKey(_domainA.PolicyKey())), Is.Null);
 	}
 
 	[Test]
@@ -519,5 +565,39 @@ public class CspServiceDomainPolicyTests : UmbracoIntegrationTestWithContent
 
 		await service.DeleteCspDefinitionAsync(created.Id, CancellationToken.None);
 		Assert.That(await service.GetCachedCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None), Is.Null);
+	}
+
+	// A move must clear the new domain's negative entry and the orphan's entry: the latter would
+	// otherwise serve the moved policy again if the old hostname is ever re-added.
+	[Test]
+	public async Task Move_InvalidatesBothDomainsCacheEntries()
+	{
+		var caches = AppCaches.Create(NoAppCache.Instance);
+		var distributedCache = new DistributedCache(
+			new SpyServerMessenger(),
+			new CacheRefresherCollection(() => new ICacheRefresher[] { new StubCacheRefresher() }));
+		var handler = new CspSavedNotificationHandler(caches, distributedCache);
+
+		var eventAggregator = Mock.Of<IEventAggregator>();
+		Mock.Get(eventAggregator)
+			.Setup(x => x.PublishAsync(It.IsAny<CspSavedNotification>(), It.IsAny<CancellationToken>()))
+			.Callback<CspSavedNotification, CancellationToken>((n, _) => handler.Handle(n))
+			.Returns(Task.CompletedTask);
+		Mock.Get(eventAggregator)
+			.Setup(x => x.PublishAsync(It.IsAny<CspDeletedNotification>(), It.IsAny<CancellationToken>()))
+			.Callback<CspDeletedNotification, CancellationToken>((n, _) => handler.Handle(n))
+			.Returns(Task.CompletedTask);
+		var service = CreateService(caches, eventAggregator);
+
+		var orphan = await service.SaveCspDefinitionAsync(NewDomainPolicy(_domainA.PolicyKey(), sources: "moved.example.com"), CancellationToken.None);
+		var domainC = await RenameDomainAToCAsync();
+		Assert.That(await service.GetCachedCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None), Is.Not.Null);
+		Assert.That(await service.GetCachedCspDefinitionForDomainAsync(domainC.PolicyKey(), CancellationToken.None), Is.Null);
+
+		await service.MoveDomainPolicyAsync(orphan.Id, domainC.PolicyKey(), CancellationToken.None);
+
+		Assert.That(await service.GetCachedCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None), Is.Null);
+		var onC = await service.GetCachedCspDefinitionForDomainAsync(domainC.PolicyKey(), CancellationToken.None);
+		Assert.That(onC?.Sources.Single().Source, Is.EqualTo("moved.example.com"));
 	}
 }

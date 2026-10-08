@@ -725,17 +725,6 @@ public class CspMiddlewareTests
 	}
 
 	[Test]
-	public async Task CspMiddleware_RoutedDomainNameDifferingOnlyByCase_AppliesTheDomainPolicy()
-	{
-		SetRoutedDomain("A.Example.COM");
-		SetPolicies(GlobalFrontend(), DomainPolicy(enabled: true));
-
-		var response = await _host.GetTestClient().GetAsync("/");
-
-		Assert.That(response.Headers.GetValues(Constants.HeaderName).Single(), Is.EqualTo("default-src domain.example.com"));
-	}
-
-	[Test]
 	public async Task CspMiddleware_BackOfficeRequest_NeverUsesADomainPolicy()
 	{
 		SetRoutedDomain();

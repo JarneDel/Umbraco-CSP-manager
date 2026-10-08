@@ -2,7 +2,7 @@
 
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11084/badge)](https://www.bestpractices.dev/projects/11084)
 [![Build](https://github.com/Matthew-Wise/Umbraco-CSP-manager/actions/workflows/csp-manager.yml/badge.svg?event=push)](https://github.com/Matthew-Wise/Umbraco-CSP-manager/blob/main/.github/workflows/csp-manager.yml)
-[![Platform](https://img.shields.io/badge/Umbraco-17+-%233544B1?style=flat&logo=umbraco)](https://umbraco.com/products/umbraco-cms/)
+[![Platform](https://img.shields.io/badge/Umbraco-18+-%233544B1?style=flat&logo=umbraco)](https://umbraco.com/products/umbraco-cms/)
 [![GitHub license](https://img.shields.io/github/license/Matthew-Wise/Umbraco-CSP-manager?color=8AB803)](https://github.com/Matthew-Wise/Umbraco-CSP-manager/blob/main/LICENSE)
 [![NuGet](https://img.shields.io/nuget/vpre/Umbraco.Community.CSPManager?color=0273B3)](https://www.nuget.org/packages/Umbraco.Community.CSPManager)
 [![Downloads](https://img.shields.io/nuget/dt/Umbraco.Community.CSPManager?color=cc9900)](https://www.nuget.org/packages/Umbraco.Community.CSPManager/)
@@ -12,12 +12,13 @@ A Content Security Policy management package for Umbraco CMS. Manage CSP headers
 ## Features
 
 - **Frontend & Backoffice CSP Management** — Configure separate policies for your site frontend and Umbraco backoffice
+- **Domain-Specific Policies** — Assign dedicated CSPs to specific hostnames from Culture and Hostnames
 - **Intuitive Backoffice Interface** — Easy-to-use management screens within the Umbraco backoffice
 - **Policy Import** — Paste an existing CSP header value to import it directly into the backoffice
 - **CSP Evaluation Tools** — Test and validate your policies before deployment
 - **Nonce Support** — Built-in tag helpers for script, style, and link nonces
 - **Flexible Configuration** — Customise CSP directives to match your requirements
-- **Notification Events** — Extend behaviour with `CspWritingNotification` and `CspSavedNotification`
+- **Notification Events** — Extend behaviour with `CspWritingNotification`, `CspSavedNotification`, and `CspDeletedNotification`
 - **uSync Integration** — Sync CSP policies across environments using uSync
 
 ## Installation

@@ -90,6 +90,26 @@ export class UmbCspDefinitionRepository extends UmbRepositoryBase {
 	}
 
 	/**
+	 * Move an orphaned domain policy to another domain. Returns the policy under its new id.
+	 */
+	async move(id: string, domainKey: string) {
+		const { data, error } = await tryExecute(
+			this,
+			Definitions.postUmbracoCspApiV1DefinitionsByIdMove({
+				path: { id },
+				query: { domainKey },
+			}),
+			{ disableNotifications: false }
+		);
+
+		if (data) {
+			return { data };
+		}
+
+		return { error };
+	}
+
+	/**
 	 * Save CSP definition. A domain policy posted with the empty id is created and gets its id from the server.
 	 */
 	async save(definition: CspApiDefinition) {

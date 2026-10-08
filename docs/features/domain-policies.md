@@ -6,62 +6,65 @@ nav_order: 3
 
 # Domain policies
 
-Give a domain its own CSP. When a site has several domains under **Culture and Hostnames**, a domain policy replaces the global **Frontend** policy for requests Umbraco routes through that domain. Every other domain keeps using the Frontend policy.
+Domain policies assign a dedicated Content Security Policy (CSP) to specific hostnames configured under **Culture and Hostnames**. When enabled, a domain policy overrides the default **Frontend** policy for requests routed through that domain; all other domains continue using the Frontend policy.
 
-Use this when one site needs sources the others shouldn't allow, such as a microsite with its own analytics or a campaign domain embedding a third-party widget.
+Use domain policies when specific sites require unique directives—such as dedicated analytics on a microsite or third-party embeds on a campaign page.
 
 ## Create a domain policy
 
-1. Open the **CSP Management** section.
-2. On the **Frontend** node, open the actions menu (**...**) and choose **Add Domain Policy**.
-3. Pick a domain. The list shows every hostname from Culture and Hostnames that doesn't have a policy yet, with its culture and the content node it's assigned to.
-4. The editor opens with a copy of the Frontend policy. Change it, then click **Save**.
+1. Open the **CSP Management** section in the backoffice.
+2. In the tree, open the context menu (`...`) on the **Frontend** node and select **Add Domain Policy**.
+3. Select a domain from the dropdown. The list shows unassigned hostnames from Culture and Hostnames alongside their assigned content node and culture.
+4. Adjust directives in the editor (pre-filled with a copy of the Frontend policy), then click **Save**.
 
-Nothing is created until you save. After saving, the policy appears under **Frontend** in the tree.
+The policy is created once saved and appears as a child of the Frontend node in the tree.
 
-Domain policies use the same editor as the global policies: sources, settings (report-only, reporting, upgrade insecure requests) and the evaluator all work the same way. Use **Open content item** to jump to the content node the domain belongs to.
+Domain policies support the same settings (Report-Only, Reporting, Upgrade Insecure Requests, Sources, and Evaluator) as global policies. Click **Open content item** in the editor header to navigate directly to the assigned Umbraco content node.
 
-## Switch a domain back to the Frontend policy
+## Disable or re-enable a policy
 
-The status toggle under **Settings** switches a domain between its own policy and the Frontend policy, so you can compare the two without deleting anything. Turned off, the domain uses the Frontend policy (or gets no header with [`NoHeader`](configuration#disableddomainpolicybehavior)) and shows as **(inactive)** in the tree. Turn it back on and save to apply the domain policy again.
+Toggle the status switch under **Settings** to disable a domain policy without deleting it:
+
+- **Disabled:** Displays as `(inactive)` in the tree. Requests fall back to the Frontend policy or emit no header, depending on [`DisabledDomainPolicyBehavior`](configuration#disableddomainpolicybehavior).
+- **Enabled:** The domain policy applies to requests for this hostname.
 
 {: .warning }
-A CSP is not an isolation boundary between domains that share an origin. Path-based domains such as `example.com/en` and `example.com/fr` are one origin to the browser, so a page under one can load or script a page under the other whatever their policies say. Give each its own hostname when you need them kept apart.
+A CSP does not provide an origin isolation boundary. Path-based cultures on the same origin (such as `example.com/en` and `example.com/fr`) share execution context in the browser. To isolate policies, use separate hostnames.
 
 {: .note }
-Only hostname domains can have a policy. Wildcard (culture-only) domains are not listed, and each domain can have one policy.
+Policies require a full hostname. Culture-only wildcard entries (`/`) cannot receive a domain policy, and each hostname supports only one policy.
 
-## Which policy applies
+## Policy resolution order
 
-| Request | Policy used |
+Umbraco matches policies against the resolved request domain (`PublishedRequest.Domain`):
+
+| Request context | Applied policy |
 |---|---|
-| Backoffice (`/umbraco`) | Backoffice policy. Domain policies never apply. |
-| Routed through a domain with an enabled domain policy | That domain policy |
-| Routed through a domain with a disabled domain policy | Frontend policy, or no header (see [`DisabledDomainPolicyBehavior`](configuration#disableddomainpolicybehavior)) |
-| Routed through a domain without a domain policy | Frontend policy |
-| Not routed through a domain (static files, APIs, unmatched hosts) | Frontend policy |
+| Backoffice (`/umbraco`) | Backoffice policy (domain policies never apply) |
+| Routed domain with active domain policy | Domain policy |
+| Routed domain with disabled domain policy | Frontend policy, or no header ([`DisabledDomainPolicyBehavior`](configuration#disableddomainpolicybehavior)) |
+| Routed domain without domain policy | Frontend policy |
+| Unrouted requests (static assets, custom APIs, unmatched hosts) | Frontend policy |
 
-The domain is the one Umbraco's routing matched for the request (`PublishedRequest.Domain`), so a domain policy applies to the pages Umbraco renders under that domain.
+## Delete a policy
 
-## Delete a domain policy
-
-Open the policy and click **Delete domain policy**, then confirm. Requests on that domain go back to the Frontend policy straight away. The global Frontend and Backoffice policies cannot be deleted.
+Open the policy, click **Delete domain policy**, and confirm. Traffic on that hostname reverts to the Frontend policy immediately. Global Frontend and Backoffice policies cannot be deleted.
 
 ## Renamed and removed domains
 
-A domain policy is tied to the domain *name*, because Umbraco doesn't keep a stable identifier for domains. If you rename a domain or remove it, its policy stops applying and shows as **Removed domain (...)** under Frontend.
+Policies map directly to the **hostname string**. If you rename or delete a hostname in Culture and Hostnames:
 
-The policy is kept rather than deleted, so a domain removed by mistake gets its policy back once it's re-added with the same name. Delete the policy when you no longer need it.
+- The policy detaches and appears in the tree as **Removed domain (...)**.
+- The policy is preserved rather than deleted. Re-adding the original hostname re-associates the policy automatically.
+- To re-assign the policy after renaming a hostname, open the policy and click **Move to domain...**, then select the new hostname. This creates the policy under the new domain and cleans up the orphan. Ensure any unsaved edits are saved before moving.
+- If a domain is permanently decommissioned, click **Delete domain policy** to remove the orphan.
 
-{: .warning }
-Renaming a domain, for example from `example.com` to `www.example.com`, orphans its policy. Create a policy for the new name, or rename the domain back.
+## Load balancing and uSync
 
-## Load-balanced sites and uSync
-
-Saving or deleting a domain policy clears the cached policy on every server, like the global policies.
-
-With [uSync](../integrations/usync), domain policies are exported and imported with the other CSP definitions, and deleting one deletes it on the next import. Because policies follow the domain name, a policy only applies on environments that use the same hostname. Import the domains before the policies, as an import fails for a domain that doesn't exist on the target.
+- **Cache invalidation:** Saving or deleting a domain policy clears the CSP cache across all load-balanced instances automatically.
+- **[uSync](../integrations/usync):** Domain policies export and import alongside global definitions. Ensure target environments configure the required hostnames before importing policies.
 
 ## Extending
 
-[`CspWritingNotification`](../advanced/notification-events#cspwritingnotification) receives the domain policy when one applies, so its `CspDefinition.Id` is not always the Frontend id. Check `CspDefinition.DomainKey` to tell them apart. [`CspDeletedNotification`](../advanced/notification-events#cspdeletednotification) is raised when a domain policy is deleted.
+- [`CspWritingNotification`](../advanced/notification-events#cspwritingnotification) supplies the resolved policy instance. Inspect `CspDefinition.DomainKey` to distinguish domain policies from the global Frontend policy.
+- [`CspDeletedNotification`](../advanced/notification-events#cspdeletednotification) fires whenever a domain policy is deleted.

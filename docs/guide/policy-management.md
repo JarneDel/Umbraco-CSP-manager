@@ -13,7 +13,7 @@ The CSP Manager provides an intuitive interface for managing Content Security Po
 
 Navigate to the **CSP Management section** in the Umbraco backoffice sidebar to manage both.
 
-A site with several domains can also give a domain its own policy that overrides Frontend. See [Domain Policies](../features/domain-policies).
+Sites with multiple domains can also configure domain-specific policies that override the Frontend policy for specific hostnames. See [Domain Policies](../features/domain-policies).
 
 ## Managing Sources
 
@@ -26,6 +26,8 @@ To add a new source:
 2. Enter the source value (e.g., `https://cdn.example.com`, `'self'`, `'unsafe-inline'`)
 3. Select which CSP directives this source applies to
 4. Save your changes
+
+Each source must be a single value without spaces, commas, or semicolons. See [Value validation](policy-settings#value-validation).
 
 ## Special Sources
 

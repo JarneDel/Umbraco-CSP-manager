@@ -4,21 +4,10 @@ using System.Text;
 namespace Umbraco.Community.CSPManager.Models;
 
 /// <summary>
-/// Derives the stable key a domain policy is stored against from an Umbraco domain's name.
+/// Utility for generating deterministic keys for domain policies based on domain hostnames.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Umbraco doesn't persist a key for domains: the <c>umbracoDomain</c> table only has an integer
-/// id, and <c>IDomain.Key</c> is a new random <see cref="Guid"/> every time a domain is loaded. A
-/// policy stored against that key would stop matching after the next reload, so the key is derived
-/// from the domain name instead (uSync does the same for its domain files).
-/// </para>
-/// <para>
-/// The name is trimmed and lower-cased (hostnames are case-insensitive), then hashed with SHA-256
-/// into a name-based (version 8) UUID. The same hostname therefore has the same key on every server
-/// and in every environment, which is what lets uSync move domain policies between environments.
-/// Renaming a domain gives it a new key: its old policy is kept as an orphan until deleted.
-/// </para>
+/// Generates a normalized, namespace-hashed UUID (v8) from the domain name to ensure consistent identification across environments.
 /// </remarks>
 public static class CspDomainKey
 {

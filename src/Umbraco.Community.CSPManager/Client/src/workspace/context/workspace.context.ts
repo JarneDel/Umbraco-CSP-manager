@@ -37,6 +37,9 @@ export class UmbCspManagerWorkspaceContext
 
 	#policyId: string | null = null;
 	#allowNavigateAway = false;
+	// Bumped by every route load. A response that arrives after the route has changed again (e.g. the
+	// user clicks another policy while a draft is still loading) must not overwrite the newer state.
+	#loadVersion = 0;
 
 	#state = new UmbObjectState<WorkspaceState>({
 		definition: null,
@@ -105,10 +108,11 @@ export class UmbCspManagerWorkspaceContext
 	}
 
 	async #load(unique: string) {
+		const version = ++this.#loadVersion;
 		this.#policyId = unique;
 		this.#state.update({ isNew: false });
 		// Load both in parallel but await completion to avoid race conditions
-		await Promise.all([this.loadDefinition(), this.loadDirectives()]);
+		await Promise.all([this.loadDefinition(version), this.loadDirectives()]);
 	}
 
 	/**
@@ -116,6 +120,7 @@ export class UmbCspManagerWorkspaceContext
 	 * until save(); the id stays empty so the server assigns it.
 	 */
 	async #loadNew(domainKey: string) {
+		const version = ++this.#loadVersion;
 		this.#policyId = null;
 		this.#allowNavigateAway = false;
 		this.#state.update({ loading: true, error: undefined, isNew: true, definition: null, persistedDefinition: null });
@@ -125,6 +130,10 @@ export class UmbCspManagerWorkspaceContext
 			this.#cspDefinitionContext.getDomains(),
 			this.loadDirectives(),
 		]);
+
+		if (version !== this.#loadVersion) {
+			return;
+		}
 
 		const error = frontendResult.error ?? domainsResult.error;
 		if (error || !frontendResult.data) {
@@ -141,8 +150,7 @@ export class UmbCspManagerWorkspaceContext
 			domainKey,
 			domainName: domain?.name ?? null,
 			rootContentKey: domain?.rootContentKey ?? null,
-			// disabledDomainPolicyBehavior stays as copied (null on the Frontend policy): Umbraco 17's
-			// OpenAPI document types it as non-nullable, but the server only fills it for saved domain policies.
+			disabledDomainPolicyBehavior: null,
 			sources: frontendResult.data.sources.map((s) => ({ ...s, definitionId: newId, directives: [...s.directives] })),
 		};
 
@@ -159,13 +167,17 @@ export class UmbCspManagerWorkspaceContext
 		return this.getPolicyType() === CspConstants.policyTypes.backoffice;
 	}
 
-	async loadDefinition() {
+	async loadDefinition(version = this.#loadVersion) {
 		this.#state.update({ loading: true, error: undefined });
 		this.#allowNavigateAway = false;
 		const { data, error } =
 			this.#policyId && !isGlobalPolicyId(this.#policyId)
 				? await this.#cspDefinitionContext.loadById(this.#policyId)
 				: await this.#cspDefinitionContext.load(this.getIsBackOffice());
+
+		if (version !== this.#loadVersion) {
+			return;
+		}
 
 		if (error) {
 			this.#state.update({ loading: false, error });
@@ -283,6 +295,28 @@ export class UmbCspManagerWorkspaceContext
 		this.#allowNavigateAway = true;
 		await this.#reloadDomainPoliciesInTree();
 		return { success: true };
+	}
+
+	/**
+	 * Moves the orphaned domain policy this workspace shows to another domain. The server re-creates
+	 * it under a new id, so the caller navigates to the returned policy.
+	 */
+	async moveDomainPolicy(
+		domainKey: string,
+	): Promise<{ data?: CspApiDefinition; error?: UmbError | UmbApiError | UmbCancelError | Error }> {
+		const id = this.#policyId;
+		if (!id || !this.isDomainPolicy() || this.#state.getValue().isNew) {
+			return { error: new Error('Only a saved domain policy can be moved') };
+		}
+
+		const { data, error } = await this.#cspDefinitionContext.moveDomainPolicy(id, domainKey);
+		if (error || !data) {
+			return { error };
+		}
+
+		this.#allowNavigateAway = true;
+		await this.#reloadDomainPoliciesInTree();
+		return { data };
 	}
 
 	async #reloadDomainPoliciesInTree() {

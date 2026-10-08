@@ -1,14 +1,8 @@
 namespace Umbraco.Community.CSPManager.Services;
 
 /// <summary>
-/// Thrown by <see cref="ICspService"/> when a save or delete would break the rules the service
-/// enforces on CSP definition identity, regardless of who calls it (API, uSync, custom code).
+/// Exception thrown when a CSP definition violates identity or content validation rules.
 /// </summary>
-/// <remarks>
-/// Examples: a global policy carrying a <c>DomainKey</c>, re-targeting an existing domain policy to
-/// another domain, a second policy for the same domain, a domain that doesn't exist, or deleting
-/// one of the two global policies.
-/// </remarks>
 public sealed class CspDefinitionValidationException : InvalidOperationException
 {
 	/// <summary>
@@ -22,7 +16,7 @@ public sealed class CspDefinitionValidationException : InvalidOperationException
 	}
 
 	/// <summary>
-	/// Gets the <see cref="Models.CspDefinition"/> member the error relates to, e.g. <c>DomainKey</c>.
+	/// Gets the name of the member that failed validation.
 	/// </summary>
 	public string MemberName { get; }
 }

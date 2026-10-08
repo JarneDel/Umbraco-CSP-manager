@@ -131,9 +131,7 @@ public class DefinitionsController : CspManagerControllerBase
 	/// or a validation problem details object if the model state is invalid.
 	/// </returns>
 	/// <remarks>
-	/// Saves one of the two global policies or an existing domain policy (with its own id and
-	/// domain). Posting <see cref="Guid.Empty"/> as the id with a <c>domainKey</c> creates a domain
-	/// policy; the server assigns its id and returns it.
+	/// Saves global or domain policies. Posting <see cref="Guid.Empty"/> with a domain key creates a new policy with a server-assigned ID.
 	/// </remarks>
 	/// <response code="200">The definition was saved successfully.</response>
 	/// <response code="400">The definition failed validation (e.g., duplicate sources, invalid ID, changed domain).</response>
@@ -220,6 +218,40 @@ public class DefinitionsController : CspManagerControllerBase
 		{
 			await _cspService.DeleteCspDefinitionAsync(id, cancellationToken);
 			return Ok();
+		}
+		catch (CspDefinitionValidationException ex)
+		{
+			return CspValidationProblem(ex);
+		}
+	}
+
+	/// <summary>
+	/// Moves an orphaned domain policy to an active domain without an assigned policy.
+	/// </summary>
+	/// <param name="id">The id of the orphaned domain policy.</param>
+	/// <param name="domainKey">The key of a non-wildcard Umbraco domain that has no policy yet.</param>
+	/// <param name="cancellationToken">A cancellation token.</param>
+	/// <returns>The policy under its new domain and id.</returns>
+	/// <response code="200">The policy was moved.</response>
+	/// <response code="400">The id is not an orphaned domain policy, or the target domain is invalid or already assigned.</response>
+	/// <response code="404">There is no definition with that id.</response>
+	[HttpPost("Definitions/{id:guid}/move")]
+	[MapToApiVersion("1.0")]
+	[ProducesResponseType(typeof(CspApiDefinition), 200)]
+	[ProducesResponseType(typeof(ProblemDetails), 400)]
+	[ProducesResponseType(404)]
+	public async Task<IActionResult> MoveDomainPolicy(Guid id, [FromQuery] Guid domainKey, CancellationToken cancellationToken = default)
+	{
+		if (id != Constants.DefaultFrontEndId && id != Constants.DefaultBackofficeId
+			&& await _cspService.GetCspDefinitionAsync(id, cancellationToken) is null)
+		{
+			return NotFound();
+		}
+
+		try
+		{
+			var moved = await _cspService.MoveDomainPolicyAsync(id, domainKey, cancellationToken);
+			return Ok(await ToApiDefinitionAsync(moved));
 		}
 		catch (CspDefinitionValidationException ex)
 		{

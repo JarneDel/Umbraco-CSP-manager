@@ -15,18 +15,14 @@ Provides uSync serialization and sync support for CSP Manager configurations.
 
 - Default: `ProjectReference` to CSPManager (instant change flow during development)
 - NuGet pack: `dotnet pack -p:UseProjectReferences=false` switches to `PackageReference`
-- Version range: `[$(CspManagerMinVersion), 18.0.0)` — accepts any 17.x (default lower bound: `17.0.0-0`)
+- Version range: `$(CspManagerDependencyRange)`, defined in `src/Directory.Build.props`
+  (default `[18.0.0, 19.0.0)` — accepts any 18.x). The release workflow overrides it
+  for prerelease builds; bump `CspManagerDependencyFloor`, not this csproj, on a breaking change.
 
 ## Key Behaviors
 
-- Serializes: Enabled, ReportOnly, ReportUri, ReportingDirective, UpgradeInsecureRequests, Sources,
-  and `DomainKey` for domain policies only (global files are unchanged)
-- Returns the backoffice and frontend definitions plus every domain policy
-- uSync group: "Settings"
-- Domain policies: created on import with the source id (CspService checks the domain exists, so
-  import domains first); if the target already has a policy for that domain under another id, that
-  one is updated; a file that would move an existing definition to another domain fails
-- Invalid files: `DeserializeCoreAsync` runs `CspDefinitionValidator` and fails the item with the reason
-  ("Invalid CSP definition: ...") instead of letting the service throw on save
-- Deletes: the global definitions are never deleted; a domain policy delete marker deletes it on import
-- Tests: `src/uSync/Umbraco.Community.CSPManager.uSync.Tests` (serializer, fake `ICspService`)
+- Serializes: Enabled, ReportOnly, ReportUri, ReportingDirective, UpgradeInsecureRequests, Sources, and `DomainKey` (domain policies only)
+- Items: backoffice, frontend, and all domain policies under uSync group "Settings"
+- Domain policies: created on import if hostname exists on target; updates existing policy if present; fails if reassigning to another domain
+- Validation: `DeserializeCoreAsync` runs `CspDefinitionValidator` and fails items containing invalid tokens or directives
+- Deletions: global policies cannot be deleted; domain policy delete markers delete policies on import

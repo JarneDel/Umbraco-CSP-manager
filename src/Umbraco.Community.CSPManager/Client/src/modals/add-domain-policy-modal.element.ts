@@ -7,7 +7,8 @@ import type { AddDomainPolicyModalData, AddDomainPolicyModalValue } from './add-
 
 /**
  * Lists the Umbraco domains that don't have a policy yet. Picking one submits it straight away.
- * Domain and content names are user content, so they are only ever rendered as text bindings.
+ * Used to add a domain policy and to move an orphaned one. Domain and content names are user
+ * content, so they are only ever rendered as text bindings.
  */
 @customElement('umb-csp-add-domain-policy-modal')
 export class UmbCspAddDomainPolicyModalElement extends UmbModalBaseElement<
@@ -57,7 +58,7 @@ export class UmbCspAddDomainPolicyModalElement extends UmbModalBaseElement<
 
 	override render() {
 		return html`
-			<umb-body-layout headline=${this.localize.term('cspManagerDomainPolicy_addModalHeadline')}>
+			<umb-body-layout headline=${this.localize.term(this.data?.headlineKey ?? 'cspManagerDomainPolicy_addModalHeadline')}>
 				<uui-box>${this.#renderContent()}</uui-box>
 				<div slot="actions">
 					<uui-button label=${this.localize.term('general_cancel')} @click=${this.#cancel}></uui-button>

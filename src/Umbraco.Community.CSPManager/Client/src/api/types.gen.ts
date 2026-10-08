@@ -12,7 +12,7 @@ export type CspApiDefinition = {
 	domainKey?: string | null;
 	domainName?: string | null;
 	rootContentKey?: string | null;
-	disabledDomainPolicyBehavior: DisabledDomainPolicyBehavior;
+	disabledDomainPolicyBehavior?: DisabledDomainPolicyBehavior | null;
 	reportingDirective?: string | null;
 	reportUri?: string | null;
 	upgradeInsecureRequests: boolean;
@@ -163,6 +163,49 @@ export type GetUmbracoCspApiV1DefinitionsByIdResponses = {
 
 export type GetUmbracoCspApiV1DefinitionsByIdResponse =
 	GetUmbracoCspApiV1DefinitionsByIdResponses[keyof GetUmbracoCspApiV1DefinitionsByIdResponses];
+
+export type PostUmbracoCspApiV1DefinitionsByIdMoveData = {
+	body?: never;
+	path: {
+		id: string;
+	};
+	query?: {
+		domainKey?: string;
+	};
+	url: '/umbraco/csp/api/v1/Definitions/{id}/move';
+};
+
+export type PostUmbracoCspApiV1DefinitionsByIdMoveErrors = {
+	/**
+	 * Bad Request
+	 */
+	400: ProblemDetails;
+	/**
+	 * The resource is protected and requires an authentication token
+	 */
+	401: unknown;
+	/**
+	 * The authenticated user does not have access to this resource
+	 */
+	403: unknown;
+	/**
+	 * Not Found
+	 */
+	404: unknown;
+};
+
+export type PostUmbracoCspApiV1DefinitionsByIdMoveError =
+	PostUmbracoCspApiV1DefinitionsByIdMoveErrors[keyof PostUmbracoCspApiV1DefinitionsByIdMoveErrors];
+
+export type PostUmbracoCspApiV1DefinitionsByIdMoveResponses = {
+	/**
+	 * OK
+	 */
+	200: CspApiDefinition;
+};
+
+export type PostUmbracoCspApiV1DefinitionsByIdMoveResponse =
+	PostUmbracoCspApiV1DefinitionsByIdMoveResponses[keyof PostUmbracoCspApiV1DefinitionsByIdMoveResponses];
 
 export type PostUmbracoCspApiV1DefinitionsCreateFromFrontendData = {
 	body?: never;

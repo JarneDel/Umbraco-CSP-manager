@@ -59,7 +59,7 @@ public class CspDefinitionHandler : SyncHandlerRoot<CspDefinition, CspDefinition
 	}
 
 	/// <summary>
-	///  writes a delete marker for a deleted domain policy, so importing it elsewhere deletes it there too.
+	/// Exports a delete marker when a domain policy is deleted to propagate removal on import.
 	/// </summary>
 	public async Task HandleAsync(CspDeletedNotification notification, CancellationToken cancellationToken)
 	{

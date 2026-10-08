@@ -426,4 +426,40 @@ public class CspServiceTests : UmbracoIntegrationTest
 		Assert.That(cdnSource.Directives, Contains.Item(Constants.Directives.ScriptSource));
 		Assert.That(cdnSource.Directives, Contains.Item(Constants.Directives.StyleSource));
 	}
+
+	// The header rules themselves are covered by CspApiDefinitionValidationTests; this proves the
+	// service applies them to callers that bypass the API (uSync, custom code).
+	[Test]
+	public async Task SaveCspDefinitionAsync_WithAnInvalidSource_IsRejectedAndNotStored()
+	{
+		const string source = "https://example.com\r\nX-Injected: 1";
+		var ex = Assert.ThrowsAsync<CspDefinitionValidationException>(() => _cspService.SaveCspDefinitionAsync(
+			new CspDefinition
+			{
+				Id = Constants.DefaultFrontEndId,
+				Enabled = true,
+				Sources = [new CspDefinitionSource { Source = source, Directives = [Constants.Directives.DefaultSource] }]
+			},
+			CancellationToken.None));
+
+		var stored = await _cspService.GetCspDefinitionAsync(isBackOfficeRequest: false, CancellationToken.None);
+		Assert.Multiple(() =>
+		{
+			Assert.That(ex!.MemberName, Is.EqualTo(nameof(CspDefinition.Sources)));
+			Assert.That(ex.Message, Does.Contain("must be a single token").And.Not.Contain("\n"));
+			Assert.That(stored.Sources.Select(s => s.Source), Does.Not.Contain(source));
+		});
+	}
+
+	// "No reporting" can leave a Report URI behind; without a directive it never reaches the header,
+	// so it must not block the save.
+	[Test]
+	public async Task SaveCspDefinitionAsync_WithoutAReportingDirective_IgnoresAStaleReportUri()
+	{
+		await _cspService.SaveCspDefinitionAsync(
+			new CspDefinition { Id = Constants.DefaultFrontEndId, Enabled = true, ReportUri = "left over; from before" },
+			CancellationToken.None);
+
+		Assert.That((await _cspService.GetCspDefinitionAsync(isBackOfficeRequest: false, CancellationToken.None)).Enabled, Is.True);
+	}
 }

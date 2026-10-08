@@ -3,13 +3,8 @@ using Umbraco.Community.CSPManager.Models;
 namespace Umbraco.Community.CSPManager.uSync;
 
 /// <summary>
-/// Names and aliases uSync uses for CSP definitions.
+/// Provides alias and naming helpers for uSync CSP definitions.
 /// </summary>
-/// <remarks>
-/// Domain policies are named after the domain key rather than the hostname: the key is what
-/// matches a domain across environments (uSync syncs domains by key), a hostname often differs
-/// per environment, and a name derived from it would rename the uSync file whenever it changes.
-/// </remarks>
 internal static class CspItemNames
 {
 	public const string BackOfficeAlias = "backoffice";

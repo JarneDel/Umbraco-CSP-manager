@@ -12,34 +12,11 @@
 ## Key Patterns
 
 - Dual context: separate policies for frontend (`fac780be-...`) and backoffice (`9cbfa28c-...`)
-- Domain policies: rows with `DomainKey` set replace the frontend policy for requests Umbraco routed
-  through that domain (`PublishedRequest.Domain`, resolved inside `OnStarting`). Backoffice requests
-  never use them. A disabled one follows `DisabledDomainPolicyBehavior`; a domain without one uses
-  the frontend policy. Global queries filter `DomainKey IS NULL`.
-- `DomainKey` is derived from the domain *name* (`CspDomainKey.FromDomainName`): Umbraco doesn't
-  persist a key for domains (`IDomain.Key` is a new Guid on every load). The middleware derives it
-  from `Domain.Name`, so there is no id-to-key map to invalidate. Renaming a domain orphans its
-  policy (kept, no effect, deletable).
-- The service owns identity (`EnsureValidIdentityAsync`, inside the save scope): global ids never
-  carry a `DomainKey`; other ids must; an existing domain policy keeps its domain; `Guid.Empty` gets a
-  server-assigned id; a new one needs an existing non-wildcard domain without a policy (also a
-  filtered unique index); domain policies are never backoffice; sources always belong to the
-  definition being saved. Violations throw `CspDefinitionValidationException` (400 from the API).
-- Every write (save, create, delete) takes `scope.EagerWriteLock(Constants.Locks.Definitions)` (`-2776`,
-  row added by `DefinitionsLockMigration`) as the first thing in its scope, before any read. Without it
-  concurrent saves deadlock on SQLite (each holds a read snapshot and can't upgrade to a write). Do
-  nothing slow or lock-taking while holding it: the `IDomainService` lookup runs before the scope. A
-  unique-index violation on `DomainKey` (a writer bypassing the service) is still mapped to
-  `CspDefinitionValidationException`.
-- Header content rules (single-token sources, known directives, reporting directive/Report URI) live in
-  `CspDefinitionValidator` (public, so uSync can use it). `CspApiDefinition.Validate` (model state, 400)
-  and `SaveCspDefinitionAsync` (every caller) both apply it; whitespace-only sources are dropped first.
-  Stored rows are not re-validated on read; the middleware skips any value with a control character.
-- Domain policies are cached per domain (`csp-domain-{key}`) with the same Task/fault-eviction/clone
-  pattern; a domain without a policy caches a completed `Task` with a `null` result (negative cache).
-  `IAppCache.ClearByKey` matches by prefix, so `RefreshAll` clears them all with the prefix.
-- Deletes publish `CspDeletedNotification` post-commit; the cache handler and the distributed
-  refresher treat it like a save (the refresher payload type is `CspSavedNotification`).
+- Domain policies: rows with `DomainKey` override frontend policy on matching `PublishedRequest.Domain`. Disabled policies follow `DisabledDomainPolicyBehavior`. Backoffice always uses backoffice policy.
+- Domain keys: `CspDomainKey.FromDomainName` derives key from hostname string (Umbraco domains lack persistent IDs). Renaming/deleting a hostname orphans its policy without deleting it; `MoveDomainPolicyAsync` re-assigns an orphan to another domain.
+- Identity & locking: `EnsureValidIdentityAsync` enforces one policy per domain, assigns GUIDs if empty, and rejects domain keys on global IDs. Writes take `scope.EagerWriteLock(Constants.Locks.Definitions)` (`-2776`) to prevent SQLite deadlocks.
+- Header validation: `CspDefinitionValidator` validates sources, directives, and reporting URIs across API, service, and uSync. Whitespace sources are pruned; invalid stored tokens are skipped during response generation.
+- Caching: Domain policies cached per domain (`csp-domain-{key}`) with negative caching. Deletions publish `CspDeletedNotification` post-commit and trigger distributed cache refresh.
 - Cache-first retrieval with distributed cache invalidation on save
 - Cache invalidation ordering is easy to regress: `GetCachedCspDefinitionAsync` caches the
   in-flight `Task` (not the awaited result) so a concurrent save can't overwrite an invalidation
@@ -72,6 +49,8 @@
 - `POST /csp/api/v1.0/Definitions/create-from-frontend?domainKey={key}` - create a domain policy as a
   copy of the frontend policy
 - `DELETE /csp/api/v1.0/Definitions/{id}` - delete a domain policy (400 for the global ones)
+- `POST /csp/api/v1.0/Definitions/{id}/move?domainKey={key}` - move an orphaned domain policy to a
+  domain without one; re-created under a new id (delete + save notifications), 400 if not orphaned
 - `GET /csp/api/v1.0/Domains` - non-wildcard domains with culture, content node and policy status
   (`CspDomainsController`: Umbraco already has a `DomainsController`, and names must be unique)
 

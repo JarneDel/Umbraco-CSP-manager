@@ -21,6 +21,9 @@ import type {
 	GetUmbracoCspApiV1DomainsData,
 	GetUmbracoCspApiV1DomainsErrors,
 	GetUmbracoCspApiV1DomainsResponses,
+	PostUmbracoCspApiV1DefinitionsByIdMoveData,
+	PostUmbracoCspApiV1DefinitionsByIdMoveErrors,
+	PostUmbracoCspApiV1DefinitionsByIdMoveResponses,
 	PostUmbracoCspApiV1DefinitionsCreateFromFrontendData,
 	PostUmbracoCspApiV1DefinitionsCreateFromFrontendErrors,
 	PostUmbracoCspApiV1DefinitionsCreateFromFrontendResponses,
@@ -86,6 +89,20 @@ export class Definitions {
 		>({
 			security: [{ scheme: 'bearer', type: 'http' }],
 			url: '/umbraco/csp/api/v1/Definitions/{id}',
+			...options,
+		});
+	}
+
+	public static postUmbracoCspApiV1DefinitionsByIdMove<ThrowOnError extends boolean = true>(
+		options: Options<PostUmbracoCspApiV1DefinitionsByIdMoveData, ThrowOnError>,
+	) {
+		return (options.client ?? client).post<
+			PostUmbracoCspApiV1DefinitionsByIdMoveResponses,
+			PostUmbracoCspApiV1DefinitionsByIdMoveErrors,
+			ThrowOnError
+		>({
+			security: [{ scheme: 'bearer', type: 'http' }],
+			url: '/umbraco/csp/api/v1/Definitions/{id}/move',
 			...options,
 		});
 	}

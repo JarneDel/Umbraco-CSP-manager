@@ -97,6 +97,7 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 			("GET Definitions/{id}", () => Client.GetAsync(DefinitionsUrl(x => x.GetDefinitionById(policy.Id, CancellationToken.None)))),
 			("GET Definitions/domain-policies", () => Client.GetAsync(DefinitionsUrl(x => x.GetDomainPolicies(CancellationToken.None)))),
 			("POST Definitions/create-from-frontend", () => Client.PostAsync(DefinitionsUrl(x => x.CreateFromFrontend(_domainB.PolicyKey(), CancellationToken.None)), null)),
+			("POST Definitions/{id}/move", () => Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(policy.Id, _domainB.PolicyKey(), CancellationToken.None)), null)),
 			("POST Definitions/save (create)", () => Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(NewPolicyBody(_domainB.PolicyKey())))),
 			("DELETE Definitions/{id}", () => Client.DeleteAsync(DefinitionsUrl(x => x.DeleteDefinition(policy.Id, CancellationToken.None)))),
 			("GET Domains", () => Client.GetAsync(GetManagementApiUrl<DomainsControllerType>(x => x.GetDomains(CancellationToken.None)))),
@@ -399,5 +400,63 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 
 		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
 		Assert.That(await _cspService.GetCspDefinitionAsync(id, CancellationToken.None), Is.Not.Null);
+	}
+
+	// ── Move ─────────────────────────────────────────────────────────────────
+
+	[Test]
+	public async Task Move_OrphanedPolicy_ReturnsThePolicyUnderItsNewDomain()
+	{
+		var orphan = await _cspService.CreateCspDefinitionForDomainAsync(_domainB.PolicyKey(), CancellationToken.None);
+		// Rename b.example.com to c.example.com: the policy is orphaned, c has none.
+		var domainC = (await CspTestDomainHelper.AssignDomainsAsync(GetRequiredService<IDomainService>(), _siteB.Key, ["c.example.com"])).Single();
+		await AuthenticateAsAdminAsync();
+
+		var response = await Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(orphan.Id, domainC.PolicyKey(), CancellationToken.None)), null);
+
+		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+		var moved = await ReadDefinitionAsync(response);
+		Assert.Multiple(async () =>
+		{
+			Assert.That(moved.Id, Is.Not.EqualTo(orphan.Id));
+			Assert.That(moved.DomainKey, Is.EqualTo(domainC.PolicyKey()));
+			Assert.That(moved.DomainName, Is.EqualTo("c.example.com"));
+			Assert.That(moved.RootContentKey, Is.EqualTo(_siteB.Key));
+			Assert.That(await _cspService.GetCspDefinitionAsync(orphan.Id, CancellationToken.None), Is.Null);
+		});
+	}
+
+	[Test]
+	public async Task Move_UnknownId_ReturnsNotFound()
+	{
+		await AuthenticateAsAdminAsync();
+
+		var response = await Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(Guid.NewGuid(), _domainA.PolicyKey(), CancellationToken.None)), null);
+
+		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+	}
+
+	[Test]
+	public async Task Move_PolicyWhoseDomainStillExists_ReturnsBadRequest()
+	{
+		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
+		await AuthenticateAsAdminAsync();
+
+		var response = await Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(policy.Id, _domainB.PolicyKey(), CancellationToken.None)), null);
+
+		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+		Assert.That((await _cspService.GetCspDefinitionAsync(policy.Id, CancellationToken.None))?.DomainKey, Is.EqualTo(_domainA.PolicyKey()));
+	}
+
+	// The controller skips its 404 check for the global ids, so the service's refusal must surface as 400.
+	[Test]
+	public async Task Move_GlobalPolicy_ReturnsBadRequest()
+	{
+		await AuthenticateAsAdminAsync();
+
+		var response = await Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(Constants.DefaultFrontEndId, _domainA.PolicyKey(), CancellationToken.None)), null);
+
+		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+		Assert.That(await _cspService.GetCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None), Is.Null);
 	}
 }

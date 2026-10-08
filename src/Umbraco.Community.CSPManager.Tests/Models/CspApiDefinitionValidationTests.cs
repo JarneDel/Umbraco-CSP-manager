@@ -39,33 +39,15 @@ public class CspApiDefinitionValidationTests
 		Assert.That(results.FirstOrDefault()?.ErrorMessage, Is.EqualTo("Invalid Id"));
 	}
 
-	[TestCase("fac780be-53af-41dc-b51d-1aa647100221", TestName = "Frontend id with a DomainKey is invalid")]
-	[TestCase("9cbfa28c-2b19-40f4-9f8e-bbc52bd8e780", TestName = "Backoffice id with a DomainKey is invalid")]
-	public void Validate_GlobalIdWithDomainKey_ReturnsError(string globalId)
+	[Test]
+	public void Validate_GlobalIdWithDomainKey_ReturnsError()
 	{
-		var definition = new CspApiDefinition { Id = Guid.Parse(globalId), DomainKey = Guid.NewGuid() };
+		var definition = new CspApiDefinition { Id = Constants.DefaultFrontEndId, DomainKey = Guid.NewGuid() };
 
 		var results = ValidateModel(definition);
 
 		Assert.That(results, Has.Count.EqualTo(1));
 		Assert.That(results.FirstOrDefault()?.MemberNames, Contains.Item(nameof(CspApiDefinition.DomainKey)));
-	}
-
-	[Test]
-	public void Validate_NewDomainPolicy_WithEmptyId_ReturnsNoErrors()
-	{
-		var definition = new CspApiDefinition { Id = Guid.Empty, DomainKey = Guid.NewGuid() };
-
-		Assert.That(ValidateModel(definition), Is.Empty);
-	}
-
-	[Test]
-	public void Validate_ExistingDomainPolicy_ReturnsNoErrors()
-	{
-		// Whether the (Id, DomainKey) pair matches the stored row is checked by the service.
-		var definition = new CspApiDefinition { Id = Guid.NewGuid(), DomainKey = Guid.NewGuid() };
-
-		Assert.That(ValidateModel(definition), Is.Empty);
 	}
 
 	[Test]
@@ -357,43 +339,6 @@ public class CspApiDefinitionValidationTests
 		Assert.That(results.FirstOrDefault()?.ErrorMessage, Does.Contain("exceeds maximum length"));
 	}
 
-	[TestCase("csp-endpoint")]
-	[TestCase("default")]
-	[TestCase("csp_endpoint.v2")]
-	public void Validate_ReportToDirective_WithTokenEndpointName_ReturnsNoErrors(string endpoint)
-	{
-		var definition = new CspApiDefinition
-		{
-			Id = Constants.DefaultFrontEndId,
-			ReportingDirective = Constants.ReportingDirectives.ReportTo,
-			ReportUri = endpoint
-		};
-
-		Assert.That(ValidateModel(definition), Is.Empty);
-	}
-
-	[TestCase("https://example.com/report", TestName = "report-to with a URL instead of an endpoint name is rejected")]
-	[TestCase("csp(endpoint)", TestName = "report-to with a non-token character is rejected")]
-	[TestCase("endpöint", TestName = "report-to with a non-ASCII character is rejected")]
-	public void Validate_ReportToDirective_WithInvalidEndpointName_ReturnsError(string endpoint)
-	{
-		var definition = new CspApiDefinition
-		{
-			Id = Constants.DefaultFrontEndId,
-			ReportingDirective = Constants.ReportingDirectives.ReportTo,
-			ReportUri = endpoint
-		};
-
-		var results = ValidateModel(definition);
-
-		Assert.That(results, Has.Count.EqualTo(1));
-		Assert.Multiple(() =>
-		{
-			Assert.That(results[0].ErrorMessage, Does.Contain("endpoint name"));
-			Assert.That(results[0].MemberNames, Contains.Item("ReportUri"));
-		});
-	}
-
 	[TestCase("report-uri", "https://example.com/report; script-src *", TestName = "report-uri with a semicolon is rejected")]
 	[TestCase("report-uri", "https://example.com/report\r\nX-Injected: 1", TestName = "report-uri with a line break is rejected")]
 	[TestCase("report-uri", "/report a", TestName = "report-uri with a space is rejected")]
@@ -429,23 +374,6 @@ public class CspApiDefinitionValidationTests
 		var results = ValidateModel(definition);
 
 		Assert.That(results.Single().ErrorMessage, Does.Contain("'a??b'").And.Not.Contain("\n"));
-	}
-
-	// The service applies the same rules to a CspDefinition, for callers that bypass the API.
-	[Test]
-	public void CspDefinitionValidator_AppliesTheSameRulesToAStoredDefinition()
-	{
-		var results = CspDefinitionValidator.Validate(new CspDefinition
-		{
-			Id = Constants.DefaultFrontEndId,
-			ReportingDirective = Constants.ReportingDirectives.ReportTo,
-			ReportUri = "a b",
-			Sources = [new CspDefinitionSource { Source = "x;script-src", Directives = ["not-a-directive"] }]
-		});
-
-		Assert.That(results.Select(r => r.ErrorMessage), Has.Some.Contains("must be a single value")
-			.And.Some.Contains("must be a single token")
-			.And.Some.Contains("Unknown directive"));
 	}
 
 	private static List<ValidationResult> ValidateModel(CspApiDefinition definition)

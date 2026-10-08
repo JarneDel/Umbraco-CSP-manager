@@ -1,8 +1,10 @@
 import { UmbModalToken } from '@umbraco-cms/backoffice/modal';
 import { CspConstants } from '@/constants';
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface AddDomainPolicyModalData {}
+export interface AddDomainPolicyModalData {
+	/** Localization key of the headline; defaults to the "Add Domain Policy" headline. */
+	headlineKey?: string;
+}
 
 export interface AddDomainPolicyModalValue {
 	domainKey: string;

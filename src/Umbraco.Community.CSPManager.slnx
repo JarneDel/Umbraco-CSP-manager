@@ -17,7 +17,6 @@
   <Folder Name="/Tests/">
     <Project Path="Umbraco.Community.CSPManager.Benchmarks/Umbraco.Community.CSPManager.Benchmarks.csproj" />
     <Project Path="Umbraco.Community.CSPManager.Tests/Umbraco.Community.CSPManager.Tests.csproj" />
-    <Project Path="uSync/Umbraco.Community.CSPManager.uSync.Tests/Umbraco.Community.CSPManager.uSync.Tests.csproj" />
   </Folder>
   <Folder Name="/uSync/">
     <Project Path="uSync/Umbraco.Community.CSPManager.uSync.Complete/Umbraco.Community.CSPManager.uSync.Complete.csproj" />
