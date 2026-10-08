@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Umbraco.Community.CSPManager.Models;
 
 namespace Umbraco.Community.CSPManager.Services;
@@ -83,6 +83,22 @@ public interface ICspService
 	Task DeleteCspDefinitionAsync(Guid id, CancellationToken cancellationToken);
 
 	/// <summary>
+	/// Moves an orphaned domain policy to an active domain without an assigned policy.
+	/// </summary>
+	/// <param name="id">The id of the orphaned domain policy.</param>
+	/// <param name="domainKey">The key of an existing, non-wildcard Umbraco domain.</param>
+	/// <param name="cancellationToken">A cancellation token.</param>
+	/// <returns>The policy recreated under the new domain key with a new id.</returns>
+	/// <remarks>
+	/// Recreates the policy under a new id and deletes the orphan in a single transaction,
+	/// publishing <see cref="Notifications.CspDeletedNotification"/> and <see cref="Notifications.CspSavedNotification"/>.
+	/// </remarks>
+	/// <exception cref="CspDefinitionValidationException">
+	/// The id is not an orphaned domain policy, or the target domain is invalid or already assigned.
+	/// </exception>
+	Task<CspDefinition> MoveDomainPolicyAsync(Guid id, Guid domainKey, CancellationToken cancellationToken);
+
+	/// <summary>
 	/// Retrieves the CSP definition from the runtime cache, loading from the database if not cached.
 	/// </summary>
 	/// <param name="isBackOfficeRequest">
@@ -106,21 +122,10 @@ public interface ICspService
 	/// <param name="cancellationToken">A cancellation token to observe while waiting for the task to complete.</param>
 	/// <returns>The saved <see cref="CspDefinition"/> with any modifications applied during save.</returns>
 	/// <remarks>
-	/// <para>
-	/// This method removes empty or whitespace-only sources before saving. It also deletes
-	/// any sources that were removed from the definition and publishes a notification
-	/// that can be handled by other components.
-	/// </para>
-	/// <para>
-	/// The service enforces identity: the two global ids can never carry a
-	/// <see cref="CspDefinition.DomainKey"/>; any other id must carry one; an existing domain
-	/// policy keeps its domain; a new domain policy needs an existing non-wildcard domain without a
-	/// policy. Domain policies are always frontend policies, and sources always belong to the
-	/// definition being saved. A domain policy saved with <see cref="Guid.Empty"/> as its id is
-	/// created with a new id assigned by the service.
-	/// </para>
+	/// Strips whitespace sources and validates identity: global policies cannot carry a domain key,
+	/// domain policies require an existing non-wildcard domain, and empty IDs receive a newly generated GUID.
 	/// </remarks>
-	/// <exception cref="CspDefinitionValidationException">The definition breaks one of these rules.</exception>
+	/// <exception cref="CspDefinitionValidationException">The definition fails identity or content validation.</exception>
 	Task<CspDefinition> SaveCspDefinitionAsync(CspDefinition definition, CancellationToken cancellationToken);
 
 	/// <summary>

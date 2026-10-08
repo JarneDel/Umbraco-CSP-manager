@@ -141,6 +141,12 @@ internal static partial class Log
 		Message = "Rejected save of CSP definition {DefinitionId}: {Reason}")]
 	public static partial void CspDefinitionSaveRejected(ILogger logger, Guid definitionId, string reason);
 
+	[LoggerMessage(
+		EventId = 107,
+		Level = LogLevel.Information,
+		Message = "Moved orphaned CSP definition {DefinitionId} to {Context} as {NewDefinitionId}")]
+	public static partial void CspDefinitionMoved(ILogger logger, Guid definitionId, string context, Guid newDefinitionId);
+
 	// ===========================================
 	// Cache Events (200-299)
 	// ===========================================

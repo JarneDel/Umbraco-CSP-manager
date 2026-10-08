@@ -7,8 +7,7 @@ using Umbraco.Community.CSPManager.Services;
 namespace Umbraco.Community.CSPManager.Controllers;
 
 /// <summary>
-/// API controller listing the Umbraco domains a domain policy can be created for. Not named
-/// <c>DomainsController</c>: Umbraco has one, and controller names must be unique.
+/// API controller for retrieving available Umbraco domains eligible for domain policies.
 /// </summary>
 [ApiVersion("1.0")]
 [ApiExplorerSettings(GroupName = "Domains")]
@@ -30,8 +29,7 @@ public class CspDomainsController : CspManagerControllerBase
 	}
 
 	/// <summary>
-	/// Lists every non-wildcard Umbraco domain with the content node it's assigned to and whether
-	/// it already has a domain policy.
+	/// Lists all non-wildcard domains, including their assigned content node and existing policy status.
 	/// </summary>
 	/// <param name="cancellationToken">A cancellation token to observe while waiting for the task to complete.</param>
 	/// <returns>The domains, in Umbraco's sort order.</returns>

@@ -26,9 +26,7 @@ public sealed class CspApiDomainPolicy
 	public bool Enabled { get; set; }
 
 	/// <summary>
-	/// Gets or sets a value indicating whether the policy's domain has been removed. An orphaned
-	/// policy has no effect on any request; it is kept so a temporarily removed domain gets its
-	/// policy back, and can be deleted.
+	/// Gets or sets a value indicating whether the associated domain was removed or renamed in Umbraco.
 	/// </summary>
 	public bool IsOrphaned { get; set; }
 }

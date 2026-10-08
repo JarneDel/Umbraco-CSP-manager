@@ -17,7 +17,7 @@ Raised when the middleware is building a CSP definition for an HTTP request, bef
 - `HttpContext` — the current HTTP context
 
 {: .note }
-On a request routed through a domain with a [domain policy](../features/domain-policies), `CspDefinition` is that domain policy. Its `Id` is not `DefaultFrontEndId`, and its `DomainKey` is set. Don't rely on the `Id` to detect frontend requests; check `IsBackOffice` instead.
+When a request matches a domain with a [domain policy](../features/domain-policies), `CspDefinition` represents that domain policy. Its `DomainKey` property is populated, and `IsBackOffice` is `false`. To identify frontend requests regardless of whether a domain policy applies, check `!IsBackOffice` rather than comparing `Id` to `DefaultFrontEndId`.
 
 ```csharp
 using Umbraco.Cms.Core.Events;
@@ -72,10 +72,10 @@ public class CustomCspSavedHandler : INotificationHandler<CspSavedNotification>
 
 ## CspDeletedNotification
 
-Raised after a [domain policy](../features/domain-policies) has been deleted and the deletion committed. The global policies can't be deleted, so this is only raised for domain policies.
+Raised after a [domain policy](../features/domain-policies) has been deleted and the deletion committed. Global policies cannot be deleted, so this is only raised for domain policies. Moving an orphaned policy to another domain raises this for the old policy, followed by `CspSavedNotification` for the policy under its new domain and id.
 
 **Properties**:
-- `CspDefinition` — the definition as it was before it was deleted
+- `CspDefinition` — the definition as it was before deletion
 
 ```csharp
 using Umbraco.Cms.Core.Events;
@@ -85,7 +85,9 @@ public class CustomCspDeletedHandler : INotificationHandler<CspDeletedNotificati
 {
     public void Handle(CspDeletedNotification notification)
     {
-        _logger.LogInformation("Domain CSP policy {Id} deleted", notification.CspDefinition.Id);
+        _logger.LogInformation("Domain CSP policy {Id} ({DomainKey}) deleted",
+            notification.CspDefinition.Id,
+            notification.CspDefinition.DomainKey);
     }
 }
 ```
@@ -123,6 +125,7 @@ public class MyComposer : IComposer
     {
         builder.AddNotificationHandler<CspWritingNotification, CustomCspWritingHandler>();
         builder.AddNotificationHandler<CspSavedNotification, CustomCspSavedHandler>();
+        builder.AddNotificationHandler<CspDeletedNotification, CustomCspDeletedHandler>();
     }
 }
 ```

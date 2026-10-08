@@ -6,13 +6,13 @@ nav_order: 3
 
 # Policy Settings
 
-Each policy (frontend and backoffice) has settings that control how the CSP header is sent.
+Each policy (frontend, backoffice, or domain-specific) has settings that control how the CSP header is sent.
 
 ![Policy Settings section](../assets/images/screenshots/settings-screen.png "Policy Settings section"){: width="3840" height="2160" }
 
 ## Enabled
 
-Toggles whether the CSP header is sent for this policy. When disabled, no `Content-Security-Policy` or `Content-Security-Policy-Report-Only` header is added to responses.
+Toggles whether the CSP header is sent for this policy. When disabled on a global policy, no header is added. When disabled on a domain policy, requests fall back to the Frontend policy or send no header (see [DisabledDomainPolicyBehavior](../features/configuration#disableddomainpolicybehavior)).
 
 ## Report Only
 
@@ -29,14 +29,19 @@ Selects how violations are reported: **No reporting**, `report-to` (modern, requ
 
 ## Report URI
 
-Shown when a reporting directive is selected. For `report-uri`, the URL the browser sends CSP violation reports to: an absolute `http`/`https` URL or a relative path. For `report-to`, the name of an endpoint from your `Reporting-Endpoints` header, such as `csp-endpoint` (letters, digits and ``!#$%&'*+-.^_`|~``).
+Shown when a reporting directive is selected. For `report-uri`, enter an absolute HTTP/HTTPS URL or relative path. For `report-to`, enter the endpoint name defined in your `Reporting-Endpoints` header (such as `csp-endpoint`).
 
-## What a value can contain
+Leave blank if you do not want to collect violation reports.
 
-Every source, directive and Report URI is written straight into the response header, so each must be a single value: no spaces, `;`, `,` or line breaks. A `;` would start a new directive and a line break makes the server drop the header entirely, so the save is rejected with a message naming the value. The same check applies however the policy is saved: the backoffice, a [uSync](../integrations/usync) import or your own code calling `ICspService`.
+## Value validation
 
-{: .note }
-Policies saved before this check existed keep working: the header is built from them as before. If one holds a value that is no longer accepted, the next save asks you to fix it. A stored value with a line break is left out of the header (and logged) instead of losing the whole header.
+Source values, directives, and Report URIs are written directly into the HTTP response header. To prevent header injection or malformed responses, CSP Manager validates values on save:
+
+- Values cannot contain whitespace, semicolons (`;`), commas (`,`), or control characters (such as newlines).
+- Directives must match recognized CSP directive names.
+- Report URIs must be valid URIs (for `report-uri`) or endpoint names (for `report-to`).
+
+Validation applies across the backoffice, [uSync](../integrations/usync) imports, and the `ICspService` API. Invalid values are rejected with a descriptive error.
 
 ## Upgrade Insecure Requests
 

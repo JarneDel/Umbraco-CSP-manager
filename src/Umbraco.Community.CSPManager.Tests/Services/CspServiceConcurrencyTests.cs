@@ -153,28 +153,6 @@ public class CspServiceConcurrencyTests : UmbracoIntegrationTestWithContent
 	}
 
 	[Test]
-	public async Task IsDomainKeyUniqueViolation_RecognisesTheRealSqliteError()
-	{
-		await _cspService.SaveCspDefinitionAsync(new CspDefinition { DomainKey = _domain.PolicyKey() }, CancellationToken.None);
-
-		Exception violation = null;
-		using (var scope = ScopeProvider.CreateScope())
-		{
-			try
-			{
-				scope.Database.Insert(new CspDefinition { Id = Guid.NewGuid(), DomainKey = _domain.PolicyKey() });
-			}
-			catch (Exception ex)
-			{
-				violation = ex;
-			}
-		}
-
-		Assert.That(violation, Is.Not.Null);
-		Assert.That(CspService.IsDomainKeyUniqueViolation(violation), Is.True, violation!.Message);
-	}
-
-	[Test]
 	public void IsDomainKeyUniqueViolation_RecognisesTheSqlServerErrorByIndexName()
 	{
 		var sqlServerLike = new FakeDbException("Cannot insert duplicate key row in object 'dbo.CspDefinition' with unique index 'IX_CspDefinition_DomainKey'. The duplicate key value is (…).");

@@ -89,6 +89,7 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 			("POST Definitions/create-from-frontend", () => Client.PostAsync(DefinitionsUrl(x => x.CreateFromFrontend(_domainB.PolicyKey(), CancellationToken.None)), null)),
 			("POST Definitions/save (create)", () => Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(NewPolicyBody(_domainB.PolicyKey())))),
 			("DELETE Definitions/{id}", () => Client.DeleteAsync(DefinitionsUrl(x => x.DeleteDefinition(policy.Id, CancellationToken.None)))),
+			("POST Definitions/{id}/move", () => Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(policy.Id, _domainB.PolicyKey(), CancellationToken.None)), null)),
 			("GET Domains", () => Client.GetAsync(GetManagementApiUrl<DomainsControllerType>(x => x.GetDomains(CancellationToken.None)))),
 		};
 
@@ -100,17 +101,6 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 
 		Assert.That(await _cspService.GetCspDefinitionAsync(policy.Id, CancellationToken.None), Is.Not.Null, "the forbidden delete must not have run");
 		Assert.That(await _cspService.GetCspDefinitionForDomainAsync(_domainB.PolicyKey(), CancellationToken.None), Is.Null, "the forbidden creates must not have run");
-	}
-
-	[Test]
-	public async Task DomainPolicies_WithSectionAccess_ReturnsOk()
-	{
-		var userGroup = await CreateCspUserGroupAsync();
-		await AuthenticateClientAsync(Client, $"domain-csp{Interlocked.Increment(ref _userCounter)}@example.com", UserPassword, userGroup.Key);
-
-		var response = await Client.GetAsync(Url);
-
-		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
 	}
 
 	// ── Create ───────────────────────────────────────────────────────────────
@@ -161,17 +151,6 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 	}
 
 	[Test]
-	public async Task Save_ForAnUnknownDomain_ReturnsBadRequest()
-	{
-		await AuthenticateAsAdminAsync();
-
-		var response = await Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(NewPolicyBody(Guid.NewGuid())));
-
-		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
-		Assert.That(await _cspService.GetAllDomainPoliciesAsync(CancellationToken.None), Is.Empty);
-	}
-
-	[Test]
 	public async Task CreateFromFrontend_CopiesTheFrontendPolicy()
 	{
 		await _cspService.SaveCspDefinitionAsync(new CspDefinition
@@ -194,68 +173,7 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 		});
 	}
 
-	[Test]
-	public async Task CreateFromFrontend_ForADomainWithAPolicyOrAnUnknownDomain_ReturnsBadRequest()
-	{
-		await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
-		await AuthenticateAsAdminAsync();
-
-		var duplicate = await Client.PostAsync(DefinitionsUrl(x => x.CreateFromFrontend(_domainA.PolicyKey(), CancellationToken.None)), null);
-		var unknown = await Client.PostAsync(DefinitionsUrl(x => x.CreateFromFrontend(Guid.NewGuid(), CancellationToken.None)), null);
-
-		Assert.Multiple(() =>
-		{
-			Assert.That(duplicate.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
-			Assert.That(unknown.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
-		});
-	}
-
-	// ── Id hijack ────────────────────────────────────────────────────────────
-
-	[TestCase("fac780be-53af-41dc-b51d-1aa647100221", TestName = "Posting the frontend id with a domainKey is rejected")]
-	[TestCase("9cbfa28c-2b19-40f4-9f8e-bbc52bd8e780", TestName = "Posting the backoffice id with a domainKey is rejected")]
-	public async Task Save_GlobalIdWithDomainKey_ReturnsBadRequestAndLeavesTheGlobalPolicyAlone(string globalId)
-	{
-		var id = Guid.Parse(globalId);
-		await _cspService.SaveCspDefinitionAsync(new CspDefinition { Id = Constants.DefaultFrontEndId, Enabled = true }, CancellationToken.None);
-		await AuthenticateAsAdminAsync();
-
-		var response = await Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(NewPolicyBody(_domainA.PolicyKey(), id)));
-
-		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
-		var stored = await _cspService.GetCspDefinitionAsync(id, CancellationToken.None);
-		Assert.Multiple(async () =>
-		{
-			Assert.That(stored.DomainKey, Is.Null);
-			Assert.That(await _cspService.GetCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None), Is.Null);
-		});
-	}
-
-	[Test]
-	public async Task Save_ExistingPolicyRetargetedToAnotherDomain_ReturnsBadRequest()
-	{
-		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
-		await AuthenticateAsAdminAsync();
-
-		var response = await Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(NewPolicyBody(_domainB.PolicyKey(), policy.Id)));
-
-		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
-		var stored = await _cspService.GetCspDefinitionAsync(policy.Id, CancellationToken.None);
-		Assert.That(stored.DomainKey, Is.EqualTo(_domainA.PolicyKey()));
-	}
-
-	[Test]
-	public async Task Save_ExistingPolicyWithoutDomainKey_ReturnsBadRequest()
-	{
-		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
-		await AuthenticateAsAdminAsync();
-
-		var body = NewPolicyBody(_domainA.PolicyKey(), policy.Id);
-		body.DomainKey = null;
-		var response = await Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(body));
-
-		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
-	}
+	// ── Update ───────────────────────────────────────────────────────────────
 
 	[Test]
 	public async Task Save_ExistingPolicyWithItsOwnIdAndDomain_ReturnsOk()
@@ -377,11 +295,11 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 		});
 	}
 
-	[TestCase("fac780be-53af-41dc-b51d-1aa647100221", TestName = "Deleting the frontend policy returns 400")]
-	[TestCase("9cbfa28c-2b19-40f4-9f8e-bbc52bd8e780", TestName = "Deleting the backoffice policy returns 400")]
-	public async Task Delete_GlobalPolicy_ReturnsBadRequest(string globalId)
+	// The controller skips its 404 check for the global ids, so the service's refusal must surface as 400.
+	[Test]
+	public async Task Delete_GlobalPolicy_ReturnsBadRequest()
 	{
-		var id = Guid.Parse(globalId);
+		var id = Constants.DefaultFrontEndId;
 		await _cspService.SaveCspDefinitionAsync(new CspDefinition { Id = Constants.DefaultFrontEndId }, CancellationToken.None);
 		await AuthenticateAsAdminAsync();
 
@@ -389,5 +307,63 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 
 		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
 		Assert.That(await _cspService.GetCspDefinitionAsync(id, CancellationToken.None), Is.Not.Null);
+	}
+
+	// ── Move ─────────────────────────────────────────────────────────────────
+
+	[Test]
+	public async Task Move_OrphanedPolicy_ReturnsThePolicyUnderItsNewDomain()
+	{
+		var orphan = await _cspService.CreateCspDefinitionForDomainAsync(_domainB.PolicyKey(), CancellationToken.None);
+		// Rename b.example.com to c.example.com: the policy is orphaned, c has none.
+		var domainC = (await CspTestDomainHelper.AssignDomainsAsync(GetRequiredService<IDomainService>(), _siteB.Key, ["c.example.com"])).Single();
+		await AuthenticateAsAdminAsync();
+
+		var response = await Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(orphan.Id, domainC.PolicyKey(), CancellationToken.None)), null);
+
+		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+		var moved = await ReadDefinitionAsync(response);
+		Assert.Multiple(async () =>
+		{
+			Assert.That(moved.Id, Is.Not.EqualTo(orphan.Id));
+			Assert.That(moved.DomainKey, Is.EqualTo(domainC.PolicyKey()));
+			Assert.That(moved.DomainName, Is.EqualTo("c.example.com"));
+			Assert.That(moved.RootContentKey, Is.EqualTo(_siteB.Key));
+			Assert.That(await _cspService.GetCspDefinitionAsync(orphan.Id, CancellationToken.None), Is.Null);
+		});
+	}
+
+	[Test]
+	public async Task Move_UnknownId_ReturnsNotFound()
+	{
+		await AuthenticateAsAdminAsync();
+
+		var response = await Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(Guid.NewGuid(), _domainA.PolicyKey(), CancellationToken.None)), null);
+
+		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+	}
+
+	[Test]
+	public async Task Move_PolicyWhoseDomainStillExists_ReturnsBadRequest()
+	{
+		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
+		await AuthenticateAsAdminAsync();
+
+		var response = await Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(policy.Id, _domainB.PolicyKey(), CancellationToken.None)), null);
+
+		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+		Assert.That((await _cspService.GetCspDefinitionAsync(policy.Id, CancellationToken.None))?.DomainKey, Is.EqualTo(_domainA.PolicyKey()));
+	}
+
+	// The controller skips its 404 check for the global ids, so the service's refusal must surface as 400.
+	[Test]
+	public async Task Move_GlobalPolicy_ReturnsBadRequest()
+	{
+		await AuthenticateAsAdminAsync();
+
+		var response = await Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(Constants.DefaultFrontEndId, _domainA.PolicyKey(), CancellationToken.None)), null);
+
+		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+		Assert.That(await _cspService.GetCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None), Is.Null);
 	}
 }

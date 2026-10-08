@@ -124,6 +124,47 @@ export type DeleteDefinitionsByIdResponses = {
 	200: unknown;
 };
 
+export type PostDefinitionsByIdMoveData = {
+	body?: never;
+	path: {
+		id: string;
+	};
+	query?: {
+		domainKey?: string;
+	};
+	url: '/umbraco/csp/api/v1/Definitions/{id}/move';
+};
+
+export type PostDefinitionsByIdMoveErrors = {
+	/**
+	 * Bad Request
+	 */
+	400: ProblemDetails;
+	/**
+	 * The resource is protected and requires an authentication token
+	 */
+	401: unknown;
+	/**
+	 * The authenticated user does not have access to this resource
+	 */
+	403: unknown;
+	/**
+	 * Not Found
+	 */
+	404: unknown;
+};
+
+export type PostDefinitionsByIdMoveError = PostDefinitionsByIdMoveErrors[keyof PostDefinitionsByIdMoveErrors];
+
+export type PostDefinitionsByIdMoveResponses = {
+	/**
+	 * OK
+	 */
+	200: CspApiDefinition;
+};
+
+export type PostDefinitionsByIdMoveResponse = PostDefinitionsByIdMoveResponses[keyof PostDefinitionsByIdMoveResponses];
+
 export type GetDefinitionsByIdData = {
 	body?: never;
 	path: {

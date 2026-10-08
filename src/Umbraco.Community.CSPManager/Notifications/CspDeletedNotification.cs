@@ -4,8 +4,7 @@ using Umbraco.Community.CSPManager.Models;
 namespace Umbraco.Community.CSPManager.Notifications;
 
 /// <summary>
-/// Notification published after a <see cref="Models.CspDefinition"/> (a domain policy; the global
-/// policies can't be deleted) has been deleted and the deletion committed.
+/// Notification published after a domain CSP policy has been deleted.
 /// </summary>
 public class CspDeletedNotification : INotification
 {
@@ -15,7 +14,7 @@ public class CspDeletedNotification : INotification
 	}
 
 	/// <summary>
-	/// Gets or sets the definition as it was before it was deleted.
+	/// Gets or sets the deleted CSP definition.
 	/// </summary>
 	public CspDefinition CspDefinition { get; set; }
 }

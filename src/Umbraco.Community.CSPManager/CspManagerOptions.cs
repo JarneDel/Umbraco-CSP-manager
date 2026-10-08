@@ -1,4 +1,4 @@
-﻿namespace Umbraco.Community.CSPManager;
+namespace Umbraco.Community.CSPManager;
 
 /// <summary>
 /// Options for CSP Manager, bound from the <c>CspManager</c> configuration section.
@@ -11,29 +11,24 @@ public sealed class CspManagerOptions
 	public bool DisableBackOfficeHeader { get; set; } = false;
 
 	/// <summary>
-	/// Gets or sets what happens on a request for a domain whose domain policy is disabled.
+	/// Gets or sets the policy behavior when a request matches a domain whose policy is disabled.
 	/// Defaults to <see cref="DisabledDomainPolicyBehavior.FallbackToGlobal"/>.
 	/// </summary>
-	/// <remarks>
-	/// A domain without a domain policy always uses the global frontend policy; this setting only
-	/// applies when a domain policy exists but is switched off.
-	/// </remarks>
 	public DisabledDomainPolicyBehavior DisabledDomainPolicyBehavior { get; set; } = DisabledDomainPolicyBehavior.FallbackToGlobal;
 }
 
 /// <summary>
-/// What the middleware does when the domain policy for the requested domain is disabled.
+/// Specifies the policy fallback behavior when a domain policy is disabled.
 /// </summary>
 public enum DisabledDomainPolicyBehavior
 {
 	/// <summary>
-	/// Apply the global frontend policy instead, as if the domain had no policy. A disabled domain
-	/// policy never removes protection the rest of the site has.
+	/// Applies the default global frontend policy.
 	/// </summary>
 	FallbackToGlobal = 0,
 
 	/// <summary>
-	/// Send no CSP header for that domain, the same way a disabled global policy sends none.
+	/// Sends no CSP header for the domain.
 	/// </summary>
 	NoHeader = 1,
 }

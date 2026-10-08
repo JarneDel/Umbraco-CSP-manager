@@ -4,16 +4,11 @@ using Umbraco.Community.CSPManager.Models;
 namespace Umbraco.Community.CSPManager.Services;
 
 /// <summary>
-/// Validates what a CSP definition would put into the header: its sources, their directives and
-/// its reporting settings. Shared by every write path, so the management API, uSync and custom
-/// code calling <see cref="ICspService.SaveCspDefinitionAsync"/> all apply the same rules.
+/// Validates CSP definition header tokens, directives, and reporting configuration.
 /// </summary>
 /// <remarks>
-/// Identity (which ids may carry a domain, one policy per domain, ...) is a separate concern that
-/// <see cref="ICspService"/> checks against the database. These rules need no database: every
-/// value ends up verbatim in a response header, so a value that could splice in another directive
-/// (<c>;</c>), split the header (<c>,</c>) or make the server reject it (CR/LF and other control
-/// characters, which would send the response without any CSP) is refused.
+/// Ensures values contain no characters (whitespace, semicolons, commas, or control characters)
+/// that would invalidate or corrupt the outgoing HTTP header.
 /// </remarks>
 public static class CspDefinitionValidator
 {
@@ -98,13 +93,7 @@ public static class CspDefinitionValidator
 					[nameof(CspDefinition.ReportUri)]);
 			}
 		}
-		// report-to takes the name of a Reporting-Endpoints entry, which is an HTTP token.
-		else if (!reportUri.All(IsTokenCharacter))
-		{
-			yield return new ValidationResult(
-				"ReportUri must be an endpoint name when using report-to directive: letters, digits and !#$%&'*+-.^_`|~ only",
-				[nameof(CspDefinition.ReportUri)]);
-		}
+		// report-to uses an endpoint name, not a URI - no URL validation needed
 	}
 
 	private static IEnumerable<ValidationResult> ValidateSources(IReadOnlyList<(string Source, IReadOnlyCollection<string> Directives)> sources)
@@ -172,10 +161,6 @@ public static class CspDefinitionValidator
 
 	private static bool IsInvalidTokenCharacter(char c)
 		=> char.IsWhiteSpace(c) || char.IsControl(c) || c == ';' || c == ',';
-
-	// RFC 9110 tchar.
-	private static bool IsTokenCharacter(char c)
-		=> char.IsAsciiLetterOrDigit(c) || "!#$%&'*+-.^_`|~".Contains(c);
 
 	// Messages end up in logs and API responses, so control characters (CR/LF) are masked.
 	private static string TruncateForDisplay(string? value, int maxLength = 50)

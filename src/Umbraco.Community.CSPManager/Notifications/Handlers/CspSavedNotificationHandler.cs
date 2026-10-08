@@ -1,11 +1,10 @@
-﻿using Umbraco.Cms.Core.Cache;
+using Umbraco.Cms.Core.Cache;
 using Umbraco.Cms.Core.Events;
 
 namespace Umbraco.Community.CSPManager.Notifications.Handlers;
 
 /// <summary>
-/// Invalidates the cached definition when one is saved or deleted, on this server and - through
-/// <see cref="CspDistributedCacheRefresher"/> - on every other server.
+/// Handles cache invalidation across distributed instances when CSP definitions are saved or deleted.
 /// </summary>
 internal sealed class CspSavedNotificationHandler
 	: INotificationHandler<CspSavedNotification>, INotificationHandler<CspDeletedNotification>

@@ -42,15 +42,16 @@ The package registers a uSync serializer for `CspDefinition` objects. When uSync
 
 ## Domain policies
 
-[Domain policies](../features/domain-policies) sync with the global policies. Their files carry a `DomainKey` and are named after it, and deleting a domain policy writes a delete marker that deletes it on the next import.
+[Domain policies](../features/domain-policies) sync alongside global policies. Exported files include the `DomainKey` in the filename (`csp.domain.{domainKey}.config`). Deleting a domain policy writes a delete marker so the removal syncs on the next import. Moving an orphaned policy to another domain exports as a delete of the old policy plus a new policy, so sync the renamed hostname (Culture and Hostnames) before the CSP policies.
 
-| Situation on import | What happens |
+| Import condition | Outcome |
 |---|---|
-| The policy doesn't exist yet | It's created with the same id as on the source environment |
-| The target already has its own policy for that domain | That policy is updated; a domain never gets two |
-| The domain doesn't exist on the target | The import fails for that policy. Import the domains (Content) first |
-| A file would move an existing policy to another domain | The import fails for that policy |
-| A file holds a value the backoffice would reject (e.g. a source with `;` or a line break, an unknown directive) | The import fails for that item with the reason; nothing is saved. Fix the file or the source environment's policy and export again |
+| Policy does not exist on target | Created with the exported ID. |
+| Target already has a policy for that domain | Existing policy is updated. |
+| Domain does not exist on target | Import fails with an error. Import domains (Culture and Hostnames) before importing CSP policies. |
+| File reassigns an existing policy ID to a different domain | Import fails with an error. |
+| Policy contains invalid values (e.g. `;`, `,`, newlines, unknown directives) | Import fails with validation errors. |
 
 {: .note }
-A domain policy follows the domain *name*. It only applies on environments where the domain has the same hostname.
+Domain policies match the hostname string configured in Culture and Hostnames. They only apply on environments configured with the matching hostname.
+

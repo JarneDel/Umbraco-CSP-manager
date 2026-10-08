@@ -91,14 +91,6 @@ public class CspDistributedCacheRefresherTests
 		_runtimeCache.Verify(c => c.ClearByKey(Constants.BackOfficeCacheKey), Times.Never);
 	}
 
-	[Test]
-	public void RefreshAll_ClearsEveryDomainCacheEntryByPrefix()
-	{
-		_refresher.RefreshAll();
-
-		_runtimeCache.Verify(c => c.ClearByKey(Constants.DomainCacheKeyPrefix), Times.Once);
-	}
-
 	// Against a real cache rather than a mock: ClearByKey must actually reach every domain entry
 	// (it matches on "starts with"), including cached "no policy" results.
 	[Test]

@@ -277,6 +277,95 @@ internal sealed class CspService : ICspService
 		Log.CspDefinitionDeleted(_logger, definition.Id, GetContextName(definition));
 	}
 
+	public async Task<CspDefinition> MoveDomainPolicyAsync(Guid id, Guid domainKey, CancellationToken cancellationToken)
+	{
+		if (IsGlobalId(id))
+		{
+			throw new CspDefinitionValidationException(nameof(CspDefinition.Id), "The global frontend and backoffice policies cannot be moved to a domain.");
+		}
+
+		// Before the write lock, like the save: IDomainService takes Umbraco's own locks.
+		var domainKeys = await GetDomainKeysAsync();
+		if (!domainKeys.Contains(domainKey))
+		{
+			throw new CspDefinitionValidationException(nameof(CspDefinition.DomainKey), "The domain does not exist, or is a wildcard (culture-only) domain.");
+		}
+
+		CspDefinition orphan;
+		CspDefinition moved;
+
+		try
+		{
+			using var scope = _scopeProvider.CreateScope();
+
+			// Before any read, like every write: see SaveCspDefinitionAsync.
+			scope.EagerWriteLock(Constants.Locks.Definitions);
+
+			var sql = scope.SqlContext.Sql()
+				.SelectAll()
+				.From<CspDefinition>()
+				.Where<CspDefinition>(x => x.Id == id);
+			orphan = await LoadWithSourcesAsync(scope, sql, cancellationToken)
+				?? throw new CspDefinitionValidationException(nameof(CspDefinition.Id), "There is no domain policy with this id.");
+
+			// Only orphans: moving a policy away from a live domain would silently switch that domain
+			// to the Frontend policy.
+			if (orphan.DomainKey is not { } orphanDomainKey || domainKeys.Contains(orphanDomainKey))
+			{
+				throw new CspDefinitionValidationException(nameof(CspDefinition.Id), "Only a domain policy whose domain has been renamed or removed can be moved.");
+			}
+
+			var duplicateSql = scope.SqlContext.Sql()
+				.SelectCount()
+				.From<CspDefinition>()
+				.Where<CspDefinition>(x => x.DomainKey == domainKey);
+			if (await scope.Database.ExecuteScalarAsync<int>(duplicateSql, cancellationToken) > 0)
+			{
+				throw new CspDefinitionValidationException(nameof(CspDefinition.DomainKey), DomainAlreadyHasPolicyMessage);
+			}
+
+			// A new id rather than re-keying the row: every environment then sees a plain delete and
+			// create, so uSync can't confuse the moved policy with the orphan it replaces (same id,
+			// different alias).
+			moved = CloneDefinition(orphan);
+			moved.Id = Guid.NewGuid();
+			moved.DomainKey = domainKey;
+			moved.Sources = [.. moved.Sources.Where(s => !string.IsNullOrWhiteSpace(s.Source))];
+
+			// Rows stored before validation existed may not pass it; they must be fixed (and saved)
+			// before they can be moved, like any other write.
+			EnsureValidContent(moved);
+
+			await SaveDefinitionAsync(scope, moved, cancellationToken);
+			await scope.Database.DeleteManyAsync<CspDefinitionSource>()
+				.Where(s => s.DefinitionId == id)
+				.Execute(cancellationToken);
+			await scope.Database.DeleteManyAsync<CspDefinition>()
+				.Where(d => d.Id == id)
+				.Execute(cancellationToken);
+
+			scope.Complete();
+		}
+		catch (Exception ex) when (IsDomainKeyUniqueViolation(ex))
+		{
+			throw new CspDefinitionValidationException(nameof(CspDefinition.DomainKey), DomainAlreadyHasPolicyMessage);
+		}
+		catch (CspDefinitionValidationException ex)
+		{
+			Log.CspDefinitionSaveRejected(_logger, id, ex.Message);
+			throw;
+		}
+
+		// Post-commit, as for saves and deletes. The delete clears the orphan's cache entry, which
+		// would otherwise come back to life if its old domain is ever re-added.
+		await _eventAggregator.PublishAsync(new CspDeletedNotification(orphan), cancellationToken);
+		await _eventAggregator.PublishAsync(new CspSavedNotification(moved), cancellationToken);
+
+		Log.CspDefinitionMoved(_logger, orphan.Id, GetContextName(moved), moved.Id);
+
+		return moved;
+	}
+
 	public async Task<CspDefinition> GetCspDefinitionAsync(bool isBackOfficeRequest, CancellationToken cancellationToken)
 	{
 		var context = isBackOfficeRequest ? "BackOffice" : "Frontend";
@@ -434,9 +523,13 @@ internal sealed class CspService : ICspService
 	}
 
 	private async Task<bool> DomainExistsAsync(Guid domainKey)
+		=> (await GetDomainKeysAsync()).Contains(domainKey);
+
+	// The policy keys of every non-wildcard domain.
+	private async Task<HashSet<Guid>> GetDomainKeysAsync()
 	{
 		var domains = await _domainService.GetAllAsync(includeWildcards: false);
-		return domains.Any(d => !string.IsNullOrWhiteSpace(d.DomainName) && CspDomainKey.FromDomainName(d.DomainName) == domainKey);
+		return [.. domains.Where(d => !string.IsNullOrWhiteSpace(d.DomainName)).Select(d => CspDomainKey.FromDomainName(d.DomainName))];
 	}
 
 	// Inside the locked save scope, so the checks and the write see the same data.

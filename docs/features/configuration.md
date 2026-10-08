@@ -43,15 +43,15 @@ Remember to set it back to `false` once you have fixed the policy. See [Troubles
 **Type**: `FallbackToGlobal` \| `NoHeader`
 **Default**: `FallbackToGlobal`
 
-What a request gets when it's routed through a domain whose [domain policy](domain-policies) is disabled.
+Controls which policy applies when a request matches a domain whose [domain policy](domain-policies) is disabled.
 
 | Value | Behaviour |
 |---|---|
-| `FallbackToGlobal` | The Frontend policy applies, as if the domain had no policy. Disabling a domain policy never removes the protection the rest of the site has. |
-| `NoHeader` | No CSP header is sent for that domain, the same way a disabled Frontend policy sends none. |
+| `FallbackToGlobal` | Applies the Frontend policy, as if the domain had no policy. Disabling a domain policy retains baseline site protection. |
+| `NoHeader` | Sends no CSP header for that domain, matching the behaviour of a disabled Frontend policy. |
 
 {: .warning }
-`NoHeader` is an explicit fail-open opt-in: disabling a domain policy then removes all CSP protection from that domain. Keep the default unless you need a domain to run without a policy.
+`NoHeader` is an explicit fail-open setting: disabling a domain policy removes all CSP protection from that domain. Keep the default unless you specifically require an unconstrained domain.
 
 ```json
 {
@@ -61,4 +61,4 @@ What a request gets when it's routed through a domain whose [domain policy](doma
 }
 ```
 
-A domain *without* a domain policy always uses the Frontend policy; this option only applies when a domain policy exists and is disabled.
+Domains without a domain policy always use the Frontend policy; this option only applies when a configured domain policy is disabled.

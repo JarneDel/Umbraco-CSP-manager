@@ -1,4 +1,4 @@
-﻿using NPoco;
+using NPoco;
 using Umbraco.Cms.Infrastructure.Persistence.DatabaseAnnotations;
 
 namespace Umbraco.Community.CSPManager.Models;
@@ -35,13 +35,10 @@ public class CspDefinition
 	public bool UpgradeInsecureRequests { get; set; }
 
 	/// <summary>
-	/// Gets or sets the key of the Umbraco domain (Culture &amp; Hostnames) this policy applies to,
-	/// derived from the domain name with <see cref="CspDomainKey.FromDomainName"/>.
+	/// Gets or sets the key of the Umbraco domain this policy applies to, derived via <see cref="CspDomainKey.FromDomainName"/>.
 	/// </summary>
 	/// <remarks>
-	/// <c>null</c> for the two global policies (frontend and backoffice). When set, this is a domain
-	/// policy that replaces the global frontend policy for requests Umbraco routes through that domain.
-	/// A domain policy is never a backoffice policy, and there is at most one per domain.
+	/// When set, this definition overrides the global frontend policy for requests routed through the matching domain.
 	/// </remarks>
 	[NullSetting(NullSetting = NullSettings.Null)]
 	public Guid? DomainKey { get; set; }

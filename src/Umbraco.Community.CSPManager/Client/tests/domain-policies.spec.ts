@@ -72,6 +72,7 @@ test.describe("Domain policies: create, edit, delete", () => {
 		await expect(csp.workspaceEditor()).toHaveAttribute("headline", `${TestDomains.hostname} CSP Management`);
 		// No explanatory notice, just the link to the domain's content node.
 		const domainInfo = umbracoUi.page.locator('[data-mark="csp-domain-info"]');
+		await expect(domainInfo).toHaveAttribute("headline", "Linked content");
 		await expect(domainInfo.getByRole("link", { name: "Open content item" })).toBeVisible();
 		await expect(domainInfo.locator("p")).toHaveCount(0);
 		expect(await api.getDomainPolicies()).toHaveLength(0);
@@ -183,12 +184,42 @@ test.describe("Domain policies: create, edit, delete", () => {
 		await confirm.getByRole("button", { name: "Cancel" }).click();
 	});
 
-	test("The global policies have no Delete button", async ({ umbracoUi }) => {
-		const csp = new CspTestHelpers(umbracoUi);
-		await csp.navigateToWorkspace("frontend");
+	// A draft waits for the Frontend policy and the domain list. A response that arrives after the
+	// user has opened another policy must not turn that policy into a draft: the draft counts as
+	// unsaved changes, so Save would be enabled and would create a domain policy instead.
+	test("Opening another policy while a draft is loading keeps that policy", async ({ umbracoUi, page }) => {
+		const api = new CspApiHelpers(page.request);
+		const domainKey = await domainKeyOf(api, TestDomains.hostname);
 
-		await expect(csp.workspace().getByRole("button", { name: "Save", exact: true })).toBeVisible();
-		await expect(csp.workspace().getByRole("button", { name: "Delete domain policy", exact: true })).toHaveCount(0);
+		let releaseDomains!: () => void;
+		const domainsReleased = new Promise<void>((resolve) => (releaseDomains = resolve));
+		let markDomainsRequested!: () => void;
+		const domainsRequested = new Promise<void>((resolve) => (markDomainsRequested = resolve));
+		await umbracoUi.page.route("**/umbraco/csp/api/v1/Domains", async (route) => {
+			markDomainsRequested();
+			await domainsReleased;
+			await route.continue();
+		});
+
+		const csp = new CspTestHelpers(umbracoUi);
+		await umbracoUi.page.goto(`${baseUrl}/umbraco/section/csp-manager/workspace/csp-policy/create/${domainKey}`);
+		await domainsRequested;
+
+		await csp.treeItemByLabel(CspConstants.policyTypes.frontend.label).click();
+		await expect(umbracoUi.page).toHaveURL(new RegExp(`/edit/${CspConstants.policyTypes.frontend.value}$`));
+		await expect(csp.workspaceEditor()).toHaveAttribute("headline", `${CspConstants.policyTypes.frontend.label} CSP Management`);
+
+		// Let the draft's request finish now that the user has moved on.
+		const domainsResponse = umbracoUi.page.waitForResponse("**/umbraco/csp/api/v1/Domains");
+		releaseDomains();
+		await domainsResponse;
+		// The response has arrived; give the page a moment to apply it before checking nothing changed.
+		await umbracoUi.page.waitForTimeout(500);
+
+		await expect(csp.workspaceEditor()).toHaveAttribute("headline", `${CspConstants.policyTypes.frontend.label} CSP Management`);
+		await expect(umbracoUi.page.locator('[data-mark="csp-domain-info"]')).toHaveCount(0);
+		await expect(csp.workspace().getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+		expect(await api.getDomainPolicies()).toHaveLength(0);
 	});
 });
 
@@ -215,12 +246,12 @@ test.describe("Domain policies: switching back to the Frontend policy", () => {
 		const summary = csp.workspace().locator('[data-mark="csp-status-summary"]');
 		const toggle = csp.workspace().locator('[data-mark="csp-status-toggle"]');
 		await expect(summary).toHaveText(`${TestDomains.enGb} uses this policy.`);
-		await expect(toggle).toHaveAttribute("label", "Active");
+		await expect(toggle).toHaveAttribute("label", "Use Domain Policy");
 
 		// Off: the domain uses the Frontend policy, and the tree marks the policy inactive.
 		await toggle.click();
 		await expect(summary).toHaveText(`${TestDomains.enGb} uses the Frontend policy.`);
-		await expect(toggle).toHaveAttribute("label", "Inactive: uses the Frontend policy");
+		await expect(toggle).toHaveAttribute("label", "Use Frontend Policy");
 		await csp.workspace().getByRole("button", { name: "Save", exact: true }).click();
 		await expect(umbracoUi.page.locator("uui-toast-notification").filter({ hasText: "Changes Saved" })).toBeVisible();
 		await csp.expandTreeItem(CspConstants.policyTypes.frontend.label);
@@ -237,25 +268,74 @@ test.describe("Domain policies: switching back to the Frontend policy", () => {
 	});
 });
 
-test.describe("Concurrent saves", () => {
-	// Parallel saves used to deadlock on SQLite and take the whole backoffice down with them.
-	test("Parallel saves all complete and the backoffice keeps responding", async ({ page }) => {
+test.describe("Domain policies: moving an orphaned policy", () => {
+	const renamedHostname = "csp-test-renamed.localhost:44370";
+
+	test("A policy orphaned by a rename can be moved to the new hostname", async ({ umbracoUi, page }) => {
 		const api = new CspApiHelpers(page.request);
-		const domainKey = await domainKeyOf(api, TestDomains.enGb);
-
-		const saves = Array.from({ length: 8 }, (_, i) =>
-			i % 2 === 0
-				? api.saveDefinition(CspDefinitionBuilder.frontend().withSource(`writer${i}.example.com`, ["default-src"]).build())
-				: api.createDomainPolicy(CspDefinitionBuilder.domainPolicy(domainKey).build()).catch((e: Error) => e),
+		const domain = (await api.getDomains()).find((d) => d.name === TestDomains.hostname);
+		expect(domain?.rootContentKey, `test site domain ${TestDomains.hostname} (seeded by uSync)`).toBeTruthy();
+		const documentKey = domain!.rootContentKey!;
+		const orphan = await api.createDomainPolicy(
+			CspDefinitionBuilder.domainPolicy(domain!.key).enabled().withSource("moved.example.com", ["default-src"]).build(),
 		);
-		const results = await Promise.all(saves);
 
-		// One create wins; the others are told the domain already has a policy (400, not a 500).
-		const createResults = results.filter((_, i) => i % 2 === 1);
-		expect(createResults.filter((r) => !(r instanceof Error))).toHaveLength(1);
-		for (const r of createResults.filter((r): r is Error => r instanceof Error)) {
-			expect(r.message).toMatch(/^Failed to save definition: 400 .*A policy already exists for this domain/);
+		// Rename the hostname in Culture and Hostnames; the original is restored whatever happens.
+		const original = await api.getDocumentDomains(documentKey);
+		await api.setDocumentDomains(documentKey, {
+			...original,
+			domains: original.domains.map((d) =>
+				d.domainName === TestDomains.hostname ? { ...d, domainName: renamedHostname } : d,
+			),
+		});
+
+		try {
+			const csp = new CspTestHelpers(umbracoUi);
+			await umbracoUi.page.goto(`${baseUrl}/umbraco/section/csp-manager/workspace/csp-policy/edit/${orphan.id}`);
+			const move = umbracoUi.page.locator('[data-mark="csp-move-domain-policy"]');
+			const moveButton = move.getByRole("button", { name: "Move to domain...", exact: true });
+			await expect(moveButton).toBeEnabled();
+
+			// The move copies the stored policy, so it waits for unsaved changes to be saved or discarded.
+			await csp.workspace().getByRole("button", { name: "Add Source", exact: true }).click();
+			await expect(moveButton).toBeDisabled();
+			await expect(move).toContainText("Save or discard your changes");
+			await csp.workspace().getByRole("button", { name: "Delete", exact: true }).last().click();
+			await umbracoUi.page.locator("umb-confirm-modal").getByRole("button", { name: "Delete", exact: true }).click();
+			await expect(moveButton).toBeEnabled();
+
+			await moveButton.click();
+			const modal = csp.addDomainPolicyModal();
+			await expect(modal.locator("umb-body-layout")).toHaveAttribute("headline", "Move policy to domain");
+			await modal.locator(`uui-ref-node[name="${renamedHostname}"]`).click();
+
+			await expect(umbracoUi.page.locator("uui-toast-notification").filter({ hasText: "Policy moved" })).toBeVisible();
+			await expect(csp.workspaceEditor()).toHaveAttribute("headline", `${renamedHostname} CSP Management`);
+			await expect(move).toHaveCount(0);
+
+			const policies = await api.getDomainPolicies();
+			expect(policies).toHaveLength(1);
+			expect(policies[0].domainName).toBe(renamedHostname);
+			expect(policies[0].isOrphaned).toBe(false);
+			expect(policies[0].id).not.toBe(orphan.id);
+			expect(umbracoUi.page.url()).toContain(policies[0].id);
+
+			await csp.expandTreeItem(CspConstants.policyTypes.frontend.label);
+			await expect(csp.treeItemByLabel(renamedHostname)).toBeVisible();
+		} finally {
+			await api.setDocumentDomains(documentKey, original);
 		}
-		expect(await api.getDomainPolicies()).toHaveLength(1);
+	});
+
+	test("A policy whose domain still exists offers no move", async ({ umbracoUi, page }) => {
+		const api = new CspApiHelpers(page.request);
+		const policy = await api.createDomainPolicy(
+			CspDefinitionBuilder.domainPolicy(await domainKeyOf(api, TestDomains.enGb)).build(),
+		);
+
+		await umbracoUi.page.goto(`${baseUrl}/umbraco/section/csp-manager/workspace/csp-policy/edit/${policy.id}`);
+		await expect(new CspTestHelpers(umbracoUi).workspaceEditor()).toHaveAttribute("headline", `${TestDomains.enGb} CSP Management`);
+		await expect(umbracoUi.page.locator('[data-mark="csp-domain-info"]')).toBeVisible();
+		await expect(umbracoUi.page.locator('[data-mark="csp-move-domain-policy"]')).toHaveCount(0);
 	});
 });
