@@ -1,6 +1,6 @@
 import { css, customElement, html, state, when } from '@umbraco-cms/backoffice/external/lit';
 import { UmbLitElement } from '@umbraco-cms/backoffice/lit-element';
-import { UMB_MODAL_MANAGER_CONTEXT, umbOpenModal } from '@umbraco-cms/backoffice/modal';
+import { UMB_MODAL_MANAGER_CONTEXT } from '@umbraco-cms/backoffice/modal';
 import type { UmbModalManagerContext } from '@umbraco-cms/backoffice/modal';
 import { UMB_NOTIFICATION_CONTEXT } from '@umbraco-cms/backoffice/notification';
 import type { UmbNotificationContext } from '@umbraco-cms/backoffice/notification';
@@ -10,7 +10,6 @@ import {
 	UMB_CSP_MANAGER_WORKSPACE_CONTEXT,
 	type WorkspaceState,
 } from '../../context/workspace.context.js';
-import { ADD_DOMAIN_POLICY_MODAL } from '../../../modals/add-domain-policy-modal.token.js';
 import type { UUIInputElement } from '@umbraco-cms/backoffice/external/uui';
 
 @customElement('umb-csp-default-view')
@@ -39,12 +38,6 @@ export class UmbCspDefaultViewElement extends UmbLitElement {
 	@state()
 	private _focusSourceIndex?: number;
 
-	@state()
-	private _hasChanges = false;
-
-	@state()
-	private _moving = false;
-
 	constructor() {
 		super();
 
@@ -56,9 +49,8 @@ export class UmbCspDefaultViewElement extends UmbLitElement {
 			this.observe(context.state, (state) => {
 				this._workspaceState = state;
 				this._isDomainPolicy = context.isDomainPolicy();
-				this._hasChanges = context.hasUnsavedChanges();
 				if (state.error) {
-					this._invalidSources = state.error.cause as string[];
+					this._invalidSources = (state.error.cause as string[] | undefined) ?? [];
 				} else {
 					this._invalidSources = [];
 				}
@@ -236,68 +228,13 @@ export class UmbCspDefaultViewElement extends UmbLitElement {
 		this.#workspaceContext?.updateDefinition(updatedDefinition);
 	}
 
-	// The move copies the stored policy, so unsaved edits would be lost: the button is disabled
-	// until they are saved or discarded.
-	private async _handleMove() {
-		if (this._moving || this._hasChanges || !this.#workspaceContext) return;
-
-		const result = await umbOpenModal(this, ADD_DOMAIN_POLICY_MODAL, {
-			data: { headlineKey: 'cspManagerDomainPolicy_moveModalHeadline' },
-		}).catch(() => undefined);
-		if (!result) return;
-
-		this._moving = true;
-		try {
-			const { data, error } = await this.#workspaceContext.moveDomainPolicy(result.domainKey);
-			if (data) {
-				this.#notificationContext?.peek('positive', {
-					data: {
-						headline: this.localize.term('cspManagerDomainPolicy_movedHeadline'),
-						message: this.localize.term('cspManagerDomainPolicy_movedMessage', data.domainName ?? ''),
-					},
-				});
-				history.pushState(null, '', `section/csp-manager/workspace/csp-policy/edit/${data.id}`);
-			} else {
-				this.#notificationContext?.peek('danger', {
-					data: {
-						headline: this.localize.term('cspManagerDomainPolicy_moveFailedHeadline'),
-						message: error?.message || this.localize.term('cspManagerDomainPolicy_moveFailedMessage'),
-					},
-				});
-			}
-		} finally {
-			this._moving = false;
-		}
-	}
-
-	private _renderMove() {
-		return html`
-			<div class="move" data-mark="csp-move-domain-policy">
-				<p>
-					${this._hasChanges
-						? this.localize.term('cspManagerDomainPolicy_moveUnsavedChanges')
-						: this.localize.term('cspManagerDomainPolicy_moveDescription')}
-				</p>
-				<uui-button
-					look="primary"
-					label=${this.localize.term('cspManagerDomainPolicy_moveAction')}
-					.disabled=${this._hasChanges || this._moving}
-					.state=${this._moving ? 'waiting' : undefined}
-					@click=${this._handleMove}>
-					${this.localize.term('cspManagerDomainPolicy_moveAction')}
-				</uui-button>
-			</div>
-		`;
-	}
-
-	// Only what the user can't see elsewhere: why an orphaned policy does nothing, and a link to the
-	// content node the domain belongs to. Text bindings only.
+	// Only what the user can't see elsewhere: which hostnames the policy covers (every culture of the
+	// node), why an orphaned policy does nothing, and a link to the content node. Text bindings only.
 	private _renderDomainInfo() {
 		const definition = this._workspaceState.definition!;
-		const isOrphaned = !this._workspaceState.isNew && !definition.domainName;
-		if (!isOrphaned && !definition.rootContentKey) {
-			return '';
-		}
+		const isOrphaned = !this._workspaceState.isNew && definition.domains.length === 0;
+		// A deleted node has no name; there is nothing to link to then.
+		const nodeExists = !!definition.contentName && !!definition.contentKey;
 
 		return html`
 			<uui-box
@@ -305,12 +242,21 @@ export class UmbCspDefaultViewElement extends UmbLitElement {
 				data-mark="csp-domain-info"
 				headline=${this.localize.term('cspManagerDomainPolicy_domainInfoHeadline')}>
 				<div class="domain-info-content">
-					${isOrphaned ? html`<p>${this.localize.term('cspManagerDomainPolicy_orphanedPolicyInfo')}</p>` : ''}
-					${definition.rootContentKey
+					${isOrphaned
+						? html`<p>${this.localize.term('cspManagerDomainPolicy_orphanedPolicyInfo')}</p>`
+						: html`
+								<div class="hostnames">
+									<span>${this.localize.term('cspManagerDomainPolicy_appliesTo')}</span>
+									<ul data-mark="csp-domain-hostnames">
+										${definition.domains.map((domain) => html`<li>${domain.name}</li>`)}
+									</ul>
+								</div>
+							`}
+					${nodeExists
 						? html`
 								<uui-button
 									look="secondary"
-									href=${`section/content/workspace/document/edit/${encodeURIComponent(definition.rootContentKey)}`}
+									href=${`section/content/workspace/document/edit/${encodeURIComponent(definition.contentKey!)}`}
 									label=${this.localize.term('cspManagerDomainPolicy_openContent')}>
 									<uui-icon name="icon-document"></uui-icon>
 									${this.localize.term('cspManagerDomainPolicy_openContent')}
@@ -318,7 +264,6 @@ export class UmbCspDefaultViewElement extends UmbLitElement {
 							`
 						: ''}
 				</div>
-				${isOrphaned ? this._renderMove() : ''}
 			</uui-box>
 		`;
 	}
@@ -329,7 +274,7 @@ export class UmbCspDefaultViewElement extends UmbLitElement {
 		}
 
 		if (!this._workspaceState.definition) {
-			return html`<div>No CSP definition available</div>`;
+			return html`<div>${this._workspaceState.error?.message ?? 'No CSP definition available'}</div>`;
 		}
 
 		return html`
@@ -472,20 +417,15 @@ export class UmbCspDefaultViewElement extends UmbLitElement {
 				gap: var(--uui-size-space-4);
 			}
 
-			.move {
-				display: flex;
-				align-items: center;
-				justify-content: space-between;
-				gap: var(--uui-size-space-4);
-				margin-top: var(--uui-size-space-4);
-				padding-top: var(--uui-size-space-4);
-				border-top: 1px solid var(--uui-color-border);
-			}
-
-			.move p {
-				margin: 0;
+			.hostnames {
 				flex: 1;
 				color: var(--uui-color-text-alt);
+			}
+
+			.hostnames ul {
+				margin: var(--uui-size-space-1) 0 0;
+				padding-left: var(--uui-size-space-5);
+				color: var(--uui-color-text);
 			}
 
 			.domain-info-content p {

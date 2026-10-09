@@ -30,8 +30,6 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 	private ICspService _cspService;
 	private IContent _siteA;
 	private IContent _siteB;
-	private IDomain _domainA;
-	private IDomain _domainB;
 
 	[SetUp]
 	public async Task SetUpDomains()
@@ -50,8 +48,8 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 		contentService.Save(_siteB);
 
 		var domainService = GetRequiredService<IDomainService>();
-		_domainA = (await CspTestDomainHelper.AssignDomainsAsync(domainService, _siteA.Key, ["a.example.com"])).Single();
-		_domainB = (await CspTestDomainHelper.AssignDomainsAsync(domainService, _siteB.Key, ["b.example.com"])).Single();
+		await CspTestDomainHelper.AssignDomainsAsync(domainService, _siteA.Key, ["a.example.com"]);
+		await CspTestDomainHelper.AssignDomainsAsync(domainService, _siteB.Key, ["b.example.com"]);
 	}
 
 	private async Task AuthenticateAsAdminAsync()
@@ -65,10 +63,10 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 	private async Task<CspApiDefinition> ReadDefinitionAsync(HttpResponseMessage response)
 		=> await response.Content.ReadFromJsonAsync<CspApiDefinition>(JsonSerializerOptions);
 
-	private static CspApiDefinition NewPolicyBody(Guid domainKey, Guid? id = null) => new()
+	private static CspApiDefinition NewPolicyBody(Guid contentKey, Guid? id = null) => new()
 	{
 		Id = id ?? Guid.Empty,
-		DomainKey = domainKey,
+		ContentKey = contentKey,
 		Enabled = true,
 		Sources = [new CspApiDefinitionSource { Source = "'self'", Directives = [Constants.Directives.DefaultSource] }]
 	};
@@ -78,18 +76,17 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 	[Test]
 	public async Task EveryDomainPolicyEndpoint_WithoutSectionAccess_ReturnsForbidden()
 	{
-		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
+		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_siteA.Key, CancellationToken.None);
 		await AuthenticateAsEditorAsync();
 
 		var requests = new (string Name, Func<Task<HttpResponseMessage>> Send)[]
 		{
-			("GET Definitions?domainKey", () => Client.GetAsync(DefinitionsUrl(x => x.GetDefinition(false, _domainA.PolicyKey(), CancellationToken.None)))),
+			("GET Definitions?contentKey", () => Client.GetAsync(DefinitionsUrl(x => x.GetDefinition(false, _siteA.Key, CancellationToken.None)))),
 			("GET Definitions/{id}", () => Client.GetAsync(DefinitionsUrl(x => x.GetDefinitionById(policy.Id, CancellationToken.None)))),
 			("GET Definitions/domain-policies", () => Client.GetAsync(DefinitionsUrl(x => x.GetDomainPolicies(CancellationToken.None)))),
-			("POST Definitions/create-from-frontend", () => Client.PostAsync(DefinitionsUrl(x => x.CreateFromFrontend(_domainB.PolicyKey(), CancellationToken.None)), null)),
-			("POST Definitions/save (create)", () => Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(NewPolicyBody(_domainB.PolicyKey())))),
+			("POST Definitions/create-from-frontend", () => Client.PostAsync(DefinitionsUrl(x => x.CreateFromFrontend(_siteB.Key, CancellationToken.None)), null)),
+			("POST Definitions/save (create)", () => Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(NewPolicyBody(_siteB.Key)))),
 			("DELETE Definitions/{id}", () => Client.DeleteAsync(DefinitionsUrl(x => x.DeleteDefinition(policy.Id, CancellationToken.None)))),
-			("POST Definitions/{id}/move", () => Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(policy.Id, _domainB.PolicyKey(), CancellationToken.None)), null)),
 			("GET Domains", () => Client.GetAsync(GetManagementApiUrl<DomainsControllerType>(x => x.GetDomains(CancellationToken.None)))),
 		};
 
@@ -100,29 +97,29 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 		}
 
 		Assert.That(await _cspService.GetCspDefinitionAsync(policy.Id, CancellationToken.None), Is.Not.Null, "the forbidden delete must not have run");
-		Assert.That(await _cspService.GetCspDefinitionForDomainAsync(_domainB.PolicyKey(), CancellationToken.None), Is.Null, "the forbidden creates must not have run");
+		Assert.That(await _cspService.GetCspDefinitionForDomainAsync(_siteB.Key, CancellationToken.None), Is.Null, "the forbidden creates must not have run");
 	}
 
 	// ── Create ───────────────────────────────────────────────────────────────
 
 	[Test]
-	public async Task Save_WithEmptyIdAndDomainKey_CreatesWithAServerAssignedId()
+	public async Task Save_WithEmptyIdAndContentKey_CreatesWithAServerAssignedId()
 	{
 		await AuthenticateAsAdminAsync();
 
-		var response = await Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(NewPolicyBody(_domainA.PolicyKey())));
+		var response = await Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(NewPolicyBody(_siteA.Key)));
 
 		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
 		var created = await ReadDefinitionAsync(response);
 		Assert.Multiple(() =>
 		{
 			Assert.That(created.Id, Is.Not.EqualTo(Guid.Empty));
-			Assert.That(created.DomainKey, Is.EqualTo(_domainA.PolicyKey()));
-			Assert.That(created.DomainName, Is.EqualTo("a.example.com"));
-			Assert.That(created.RootContentKey, Is.EqualTo(_siteA.Key));
+			Assert.That(created.ContentKey, Is.EqualTo(_siteA.Key));
+			Assert.That(created.ContentName, Is.EqualTo("Site A"));
+			Assert.That(created.Domains.Select(d => d.Name), Is.EqualTo(new[] { "a.example.com" }));
 			Assert.That(created.DisabledDomainPolicyBehavior, Is.EqualTo(DisabledDomainPolicyBehavior.FallbackToGlobal));
 		});
-		var stored = await _cspService.GetCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
+		var stored = await _cspService.GetCspDefinitionForDomainAsync(_siteA.Key, CancellationToken.None);
 		Assert.That(stored?.Id, Is.EqualTo(created.Id));
 	}
 
@@ -131,22 +128,22 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 	{
 		await AuthenticateAsAdminAsync();
 
-		var response = await Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(NewPolicyBody(_domainA.PolicyKey(), Guid.NewGuid())));
+		var response = await Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(NewPolicyBody(_siteA.Key, Guid.NewGuid())));
 
 		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
-		Assert.That(await _cspService.GetCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None), Is.Null);
+		Assert.That(await _cspService.GetCspDefinitionForDomainAsync(_siteA.Key, CancellationToken.None), Is.Null);
 	}
 
 	[Test]
 	public async Task Save_SecondPolicyForTheSameDomain_ReturnsBadRequest()
 	{
-		await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
+		await _cspService.CreateCspDefinitionForDomainAsync(_siteA.Key, CancellationToken.None);
 		await AuthenticateAsAdminAsync();
 
-		var response = await Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(NewPolicyBody(_domainA.PolicyKey())));
+		var response = await Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(NewPolicyBody(_siteA.Key)));
 
 		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
-		Assert.That(await response.Content.ReadAsStringAsync(), Does.Contain("A policy already exists for this domain."));
+		Assert.That(await response.Content.ReadAsStringAsync(), Does.Contain("A policy already exists for this content node."));
 		Assert.That(await _cspService.GetAllDomainPoliciesAsync(CancellationToken.None), Has.Count.EqualTo(1));
 	}
 
@@ -161,14 +158,14 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 		}, CancellationToken.None);
 		await AuthenticateAsAdminAsync();
 
-		var response = await Client.PostAsync(DefinitionsUrl(x => x.CreateFromFrontend(_domainA.PolicyKey(), CancellationToken.None)), null);
+		var response = await Client.PostAsync(DefinitionsUrl(x => x.CreateFromFrontend(_siteA.Key, CancellationToken.None)), null);
 
 		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
 		var created = await ReadDefinitionAsync(response);
 		Assert.Multiple(() =>
 		{
 			Assert.That(created.Id, Is.Not.EqualTo(Constants.DefaultFrontEndId));
-			Assert.That(created.DomainKey, Is.EqualTo(_domainA.PolicyKey()));
+			Assert.That(created.ContentKey, Is.EqualTo(_siteA.Key));
 			Assert.That(created.Sources.Select(s => s.Source), Is.EqualTo(new[] { "frontend.example.com" }));
 		});
 	}
@@ -178,10 +175,10 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 	[Test]
 	public async Task Save_ExistingPolicyWithItsOwnIdAndDomain_ReturnsOk()
 	{
-		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
+		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_siteA.Key, CancellationToken.None);
 		await AuthenticateAsAdminAsync();
 
-		var body = NewPolicyBody(_domainA.PolicyKey(), policy.Id);
+		var body = NewPolicyBody(_siteA.Key, policy.Id);
 		body.Enabled = false;
 		var response = await Client.PostAsync(DefinitionsUrl(x => x.SaveDefinition(null!, CancellationToken.None)), JsonContent.Create(body));
 
@@ -195,17 +192,17 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 	[Test]
 	public async Task GetDefinitionById_And_GetDefinitionForDomain_ReturnTheDomainPolicy()
 	{
-		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
+		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_siteA.Key, CancellationToken.None);
 		await AuthenticateAsAdminAsync();
 
 		var byId = await Client.GetAsync(DefinitionsUrl(x => x.GetDefinitionById(policy.Id, CancellationToken.None)));
-		var byDomain = await Client.GetAsync(DefinitionsUrl(x => x.GetDefinition(false, _domainA.PolicyKey(), CancellationToken.None)));
+		var byDomain = await Client.GetAsync(DefinitionsUrl(x => x.GetDefinition(false, _siteA.Key, CancellationToken.None)));
 
 		Assert.Multiple(async () =>
 		{
 			Assert.That(byId.StatusCode, Is.EqualTo(HttpStatusCode.OK));
 			Assert.That(byDomain.StatusCode, Is.EqualTo(HttpStatusCode.OK));
-			Assert.That((await ReadDefinitionAsync(byId)).DomainName, Is.EqualTo("a.example.com"));
+			Assert.That((await ReadDefinitionAsync(byId)).Domains.Select(d => d.Name), Is.EqualTo(new[] { "a.example.com" }));
 			Assert.That((await ReadDefinitionAsync(byDomain)).Id, Is.EqualTo(policy.Id));
 		});
 	}
@@ -216,7 +213,7 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 		await AuthenticateAsAdminAsync();
 
 		var byId = await Client.GetAsync(DefinitionsUrl(x => x.GetDefinitionById(Guid.NewGuid(), CancellationToken.None)));
-		var byDomain = await Client.GetAsync(DefinitionsUrl(x => x.GetDefinition(false, _domainB.PolicyKey(), CancellationToken.None)));
+		var byDomain = await Client.GetAsync(DefinitionsUrl(x => x.GetDefinition(false, _siteB.Key, CancellationToken.None)));
 
 		Assert.Multiple(() =>
 		{
@@ -228,9 +225,9 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 	[Test]
 	public async Task GetDomainPolicies_ListsPoliciesAndFlagsOrphans()
 	{
-		var policyA = await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
-		var policyB = await _cspService.CreateCspDefinitionForDomainAsync(_domainB.PolicyKey(), CancellationToken.None);
-		// Remove domain B from its node: its policy is kept but orphaned.
+		var policyA = await _cspService.CreateCspDefinitionForDomainAsync(_siteA.Key, CancellationToken.None);
+		var policyB = await _cspService.CreateCspDefinitionForDomainAsync(_siteB.Key, CancellationToken.None);
+		// Remove the hostname from site B: its policy is kept but orphaned.
 		await CspTestDomainHelper.AssignDomainsAsync(GetRequiredService<IDomainService>(), _siteB.Key, []);
 		await AuthenticateAsAdminAsync();
 
@@ -243,36 +240,81 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 		var b = policies.Single(p => p.Id == policyB.Id);
 		Assert.Multiple(() =>
 		{
-			Assert.That(a.DomainName, Is.EqualTo("a.example.com"));
+			Assert.That(a.ContentName, Is.EqualTo("Site A"));
 			Assert.That(a.IsOrphaned, Is.False);
-			Assert.That(b.DomainName, Is.Null);
+			// The node still exists, so the orphan keeps its name.
+			Assert.That(b.ContentName, Is.EqualTo("Site B"));
 			Assert.That(b.IsOrphaned, Is.True);
-			Assert.That(b.DomainKey, Is.EqualTo(_domainB.PolicyKey()));
+			Assert.That(b.ContentKey, Is.EqualTo(_siteB.Key));
 		});
 	}
 
 	[Test]
-	public async Task GetDomains_ListsDomainsWithTheirContentCultureAndPolicy()
+	public async Task GetDomainPoliciesAndDomains_TreatANodeInTheRecycleBinAsHavingNoHostname()
 	{
-		var policyA = await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
+		var policyB = await _cspService.CreateCspDefinitionForDomainAsync(_siteB.Key, CancellationToken.None);
+		// Umbraco keeps the domains of a trashed node, but never routes a request to it.
+		GetRequiredService<IContentService>().MoveToRecycleBin(_siteB);
+		await AuthenticateAsAdminAsync();
+
+		var policies = await (await Client.GetAsync(Url)).Content.ReadFromJsonAsync<List<CspApiDomainPolicy>>(JsonSerializerOptions);
+		var nodes = await (await Client.GetAsync(GetManagementApiUrl<DomainsControllerType>(x => x.GetDomains(CancellationToken.None))))
+			.Content.ReadFromJsonAsync<List<CspDomainNodeInfo>>(JsonSerializerOptions);
+
+		var b = policies.Single(p => p.Id == policyB.Id);
+		Assert.Multiple(() =>
+		{
+			Assert.That(b.IsOrphaned, Is.True);
+			Assert.That(b.ContentName, Is.EqualTo("Site B"));
+			Assert.That(nodes.Select(n => n.ContentKey), Is.EqualTo(new[] { _siteA.Key }));
+		});
+	}
+
+	[Test]
+	public async Task GetDomains_ListsNodesWithTheirHostnamesAndPolicy()
+	{
+		var domainService = GetRequiredService<IDomainService>();
+		// A multilingual site: two hostnames on site A, listed once, in Umbraco's sort order.
+		await CspTestDomainHelper.AssignDomainsAsync(domainService, _siteA.Key, ["a.example.com/nl", "a.example.com/fr"]);
+		var policyA = await _cspService.CreateCspDefinitionForDomainAsync(_siteA.Key, CancellationToken.None);
 		await AuthenticateAsAdminAsync();
 
 		var response = await Client.GetAsync(GetManagementApiUrl<DomainsControllerType>(x => x.GetDomains(CancellationToken.None)));
 
 		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
-		var domains = await response.Content.ReadFromJsonAsync<List<CspDomainInfo>>(JsonSerializerOptions);
-		var a = domains.Single(d => d.Key == _domainA.PolicyKey());
-		var b = domains.Single(d => d.Key == _domainB.PolicyKey());
+		var nodes = await response.Content.ReadFromJsonAsync<List<CspDomainNodeInfo>>(JsonSerializerOptions);
+		Assert.That(nodes, Has.Count.EqualTo(2));
+		var a = nodes.Single(n => n.ContentKey == _siteA.Key);
+		var b = nodes.Single(n => n.ContentKey == _siteB.Key);
 		Assert.Multiple(() =>
 		{
-			Assert.That(a.Name, Is.EqualTo("a.example.com"));
-			Assert.That(a.Culture, Is.EqualTo("en-US"));
-			Assert.That(a.RootContentKey, Is.EqualTo(_siteA.Key));
-			Assert.That(a.RootContentName, Is.EqualTo("Site A"));
+			Assert.That(a.ContentName, Is.EqualTo("Site A"));
+			Assert.That(a.Domains.Select(d => d.Name), Is.EqualTo(new[] { "a.example.com/nl", "a.example.com/fr" }));
+			Assert.That(a.Domains.Select(d => d.Culture), Is.All.EqualTo("en-US"));
 			Assert.That(a.HasCspPolicy, Is.True);
 			Assert.That(a.CspDefinitionId, Is.EqualTo(policyA.Id));
+			Assert.That(b.ContentName, Is.EqualTo("Site B"));
 			Assert.That(b.HasCspPolicy, Is.False);
 			Assert.That(b.CspDefinitionId, Is.Null);
+		});
+	}
+
+	// Renaming a hostname no longer orphans the policy: it belongs to the node.
+	[Test]
+	public async Task GetDomainPolicies_AfterAHostnameRename_StillListsThePolicyUnderTheNewHostname()
+	{
+		var policyA = await _cspService.CreateCspDefinitionForDomainAsync(_siteA.Key, CancellationToken.None);
+		await CspTestDomainHelper.AssignDomainsAsync(GetRequiredService<IDomainService>(), _siteA.Key, ["www.a.example.com"]);
+		await AuthenticateAsAdminAsync();
+
+		var response = await Client.GetAsync(Url);
+
+		var policy = (await response.Content.ReadFromJsonAsync<List<CspApiDomainPolicy>>(JsonSerializerOptions)).Single();
+		Assert.Multiple(() =>
+		{
+			Assert.That(policy.Id, Is.EqualTo(policyA.Id));
+			Assert.That(policy.IsOrphaned, Is.False);
+			Assert.That(policy.ContentName, Is.EqualTo("Site A"));
 		});
 	}
 
@@ -281,7 +323,7 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 	[Test]
 	public async Task Delete_DomainPolicy_ReturnsOkThenNotFound()
 	{
-		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
+		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_siteA.Key, CancellationToken.None);
 		await AuthenticateAsAdminAsync();
 
 		var first = await Client.DeleteAsync(DefinitionsUrl(x => x.DeleteDefinition(policy.Id, CancellationToken.None)));
@@ -309,61 +351,4 @@ internal class DomainPolicyEndpointTests : CspManagementApiTest<DefinitionsContr
 		Assert.That(await _cspService.GetCspDefinitionAsync(id, CancellationToken.None), Is.Not.Null);
 	}
 
-	// ── Move ─────────────────────────────────────────────────────────────────
-
-	[Test]
-	public async Task Move_OrphanedPolicy_ReturnsThePolicyUnderItsNewDomain()
-	{
-		var orphan = await _cspService.CreateCspDefinitionForDomainAsync(_domainB.PolicyKey(), CancellationToken.None);
-		// Rename b.example.com to c.example.com: the policy is orphaned, c has none.
-		var domainC = (await CspTestDomainHelper.AssignDomainsAsync(GetRequiredService<IDomainService>(), _siteB.Key, ["c.example.com"])).Single();
-		await AuthenticateAsAdminAsync();
-
-		var response = await Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(orphan.Id, domainC.PolicyKey(), CancellationToken.None)), null);
-
-		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
-		var moved = await ReadDefinitionAsync(response);
-		Assert.Multiple(async () =>
-		{
-			Assert.That(moved.Id, Is.Not.EqualTo(orphan.Id));
-			Assert.That(moved.DomainKey, Is.EqualTo(domainC.PolicyKey()));
-			Assert.That(moved.DomainName, Is.EqualTo("c.example.com"));
-			Assert.That(moved.RootContentKey, Is.EqualTo(_siteB.Key));
-			Assert.That(await _cspService.GetCspDefinitionAsync(orphan.Id, CancellationToken.None), Is.Null);
-		});
-	}
-
-	[Test]
-	public async Task Move_UnknownId_ReturnsNotFound()
-	{
-		await AuthenticateAsAdminAsync();
-
-		var response = await Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(Guid.NewGuid(), _domainA.PolicyKey(), CancellationToken.None)), null);
-
-		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
-	}
-
-	[Test]
-	public async Task Move_PolicyWhoseDomainStillExists_ReturnsBadRequest()
-	{
-		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None);
-		await AuthenticateAsAdminAsync();
-
-		var response = await Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(policy.Id, _domainB.PolicyKey(), CancellationToken.None)), null);
-
-		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
-		Assert.That((await _cspService.GetCspDefinitionAsync(policy.Id, CancellationToken.None))?.DomainKey, Is.EqualTo(_domainA.PolicyKey()));
-	}
-
-	// The controller skips its 404 check for the global ids, so the service's refusal must surface as 400.
-	[Test]
-	public async Task Move_GlobalPolicy_ReturnsBadRequest()
-	{
-		await AuthenticateAsAdminAsync();
-
-		var response = await Client.PostAsync(DefinitionsUrl(x => x.MoveDomainPolicy(Constants.DefaultFrontEndId, _domainA.PolicyKey(), CancellationToken.None)), null);
-
-		Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
-		Assert.That(await _cspService.GetCspDefinitionForDomainAsync(_domainA.PolicyKey(), CancellationToken.None), Is.Null);
-	}
 }

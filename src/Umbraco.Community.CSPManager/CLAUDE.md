@@ -12,11 +12,11 @@
 ## Key Patterns
 
 - Dual context: separate policies for frontend (`fac780be-...`) and backoffice (`9cbfa28c-...`)
-- Domain policies: rows with `DomainKey` override frontend policy on matching `PublishedRequest.Domain`. Disabled policies follow `DisabledDomainPolicyBehavior`. Backoffice always uses backoffice policy.
-- Domain keys: `CspDomainKey.FromDomainName` derives key from hostname string (Umbraco domains lack persistent IDs). Renaming/deleting a hostname orphans its policy without deleting it; `MoveDomainPolicyAsync` re-assigns an orphan to another domain.
-- Identity & locking: `EnsureValidIdentityAsync` enforces one policy per domain, assigns GUIDs if empty, and rejects domain keys on global IDs. Writes take `scope.EagerWriteLock(Constants.Locks.Definitions)` (`-2776`) to prevent SQLite deadlocks.
+- Domain policies: rows with `ContentKey` (a content node with at least one hostname) override the frontend policy for requests routed through any hostname of that node (`PublishedRequest.Domain.ContentId` → `IIdKeyMap`). Disabled policies follow `DisabledDomainPolicyBehavior`. Backoffice always uses backoffice policy.
+- Keyed on the node, not the hostname: Umbraco doesn't persist `IDomain.Key`, hostnames differ per environment, and a multilingual site has a hostname per culture on one node. Hostname renames don't affect a policy; a node that loses all hostnames (or is trashed or deleted) leaves an orphan (kept, no effect, deletable). `CspDomainNodeLookup` lists the nodes with hostnames for the API.
+- Identity & locking: `EnsureValidIdentityShape` and `EnsureValidDomainPolicyAsync` enforce one policy per content node, assign GUIDs if empty, and reject content keys on global IDs. Writes take `scope.EagerWriteLock(Constants.Locks.Definitions)` (`-2776`) to prevent SQLite deadlocks.
 - Header validation: `CspDefinitionValidator` validates sources, directives, and reporting URIs across API, service, and uSync. Whitespace sources are pruned; invalid stored tokens are skipped during response generation.
-- Caching: Domain policies cached per domain (`csp-domain-{key}`) with negative caching. Deletions publish `CspDeletedNotification` post-commit and trigger distributed cache refresh.
+- Caching: Domain policies cached per content node (`csp-domain-{contentKey}`) with negative caching. Deletions publish `CspDeletedNotification` post-commit and trigger distributed cache refresh.
 - Cache-first retrieval with distributed cache invalidation on save
 - Cache invalidation ordering is easy to regress: `GetCachedCspDefinitionAsync` caches the
   in-flight `Task` (not the awaited result) so a concurrent save can't overwrite an invalidation
@@ -41,17 +41,15 @@
 ## API Endpoints
 
 - `GET /csp/api/v1.0/Definitions?isBackOffice=false` - retrieve a global CSP definition
-- `GET /csp/api/v1.0/Definitions?domainKey={key}` - retrieve a domain policy (404 if none)
+- `GET /csp/api/v1.0/Definitions?contentKey={key}` - retrieve a node's domain policy (404 if none)
 - `GET /csp/api/v1.0/Definitions/{id}` - retrieve any definition by id (404 if none)
 - `GET /csp/api/v1.0/Definitions/domain-policies` - list domain policies (name, orphaned flag)
 - `POST /csp/api/v1.0/Definitions/save` - save a definition; a domain policy posted with
   `Guid.Empty` is created (server-assigned id), any other unknown domain-policy id is 404
-- `POST /csp/api/v1.0/Definitions/create-from-frontend?domainKey={key}` - create a domain policy as a
+- `POST /csp/api/v1.0/Definitions/create-from-frontend?contentKey={key}` - create a domain policy as a
   copy of the frontend policy
 - `DELETE /csp/api/v1.0/Definitions/{id}` - delete a domain policy (400 for the global ones)
-- `POST /csp/api/v1.0/Definitions/{id}/move?domainKey={key}` - move an orphaned domain policy to a
-  domain without one; re-created under a new id (delete + save notifications), 400 if not orphaned
-- `GET /csp/api/v1.0/Domains` - non-wildcard domains with culture, content node and policy status
+- `GET /csp/api/v1.0/Domains` - content nodes with a hostname, their hostnames/cultures and policy status
   (`CspDomainsController`: Umbraco already has a `DomainsController`, and names must be unique)
 
 ## Configuration

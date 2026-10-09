@@ -14,15 +14,12 @@ namespace Umbraco.Community.CSPManager.uSync.Serializers;
 public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncSerializer<CspDefinition>
 {
 	private readonly ICspService _cspService;
-	private readonly IDomainService _domainService;
 
 	public CspDefinitionSerializer(
 		ILogger<CspDefinitionSerializer> logger,
-		ICspService cspService,
-		IDomainService domainService) : base(logger)
+		ICspService cspService) : base(logger)
 	{
 		_cspService = cspService;
-		_domainService = domainService;
 	}
 
 	/// <summary>
@@ -30,7 +27,7 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 	/// </summary>
 	public override async Task DeleteItemAsync(CspDefinition item)
 	{
-		if (item.DomainKey is null) return;
+		if (item.ContentKey is null) return;
 
 		Log.DeleteDomainPolicy(logger, item.Id, ItemAlias(item));
 		await _cspService.DeleteCspDefinitionAsync(item.Id, CancellationToken.None);
@@ -50,8 +47,8 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 		if (alias.Equals(CspItemNames.FrontEndAlias, StringComparison.InvariantCultureIgnoreCase))
 			return await _cspService.GetCspDefinitionAsync(false, CancellationToken.None);
 		if (alias.StartsWith(CspItemNames.DomainAliasPrefix, StringComparison.InvariantCultureIgnoreCase)
-			&& Guid.TryParse(alias[CspItemNames.DomainAliasPrefix.Length..], out var domainKey))
-			return await _cspService.GetCspDefinitionForDomainAsync(domainKey, CancellationToken.None);
+			&& Guid.TryParse(alias[CspItemNames.DomainAliasPrefix.Length..], out var contentKey))
+			return await _cspService.GetCspDefinitionForDomainAsync(contentKey, CancellationToken.None);
 		return null;
 	}
 
@@ -74,14 +71,14 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 			return SyncAttempt<CspDefinition>.Fail(alias, ChangeType.Fail, "No Info node");
 		}
 
-		var domainKey = infoNode.Element("DomainKey").ValueOrDefault(Guid.Empty);
+		var contentKey = infoNode.Element(nameof(CspDefinition.ContentKey)).ValueOrDefault(Guid.Empty);
 		var definition = await FindItemAsync(nodeKey);
 
-		if (definition is null && domainKey != Guid.Empty)
+		if (definition is null && contentKey != Guid.Empty)
 		{
-			// The domain may already have a policy created on this environment under another id.
-			// One policy per domain, so update that one rather than fail on a second.
-			definition = await _cspService.GetCspDefinitionForDomainAsync(domainKey, CancellationToken.None);
+			// The node may already have a policy created on this environment under another id.
+			// One policy per node, so update that one rather than fail on a second.
+			definition = await _cspService.GetCspDefinitionForDomainAsync(contentKey, CancellationToken.None);
 		}
 
 		if (definition is null)
@@ -94,15 +91,14 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 					IsBackOffice = nodeKey == CspManagerConstants.DefaultBackofficeId
 				};
 			}
-			else if (domainKey != Guid.Empty)
+			else if (contentKey != Guid.Empty)
 			{
-				// CspService refuses a new policy for a domain this site doesn't have, but by throwing
-				// from the save. Checked here so the item fails with a reason instead (e.g. a Settings
-				// import before the Content import that brings the domains, or a hostname that differs
-				// on this environment).
-				if (!await DomainExistsAsync(domainKey))
+				// CspService refuses a new policy for a node without a hostname, but by throwing from
+				// the save. Checked here so the item fails with a reason instead (e.g. a Settings import
+				// before the Content import that brings the node and its Culture and Hostnames).
+				if (!await _cspService.ContentNodeHasHostnameAsync(contentKey, CancellationToken.None))
 				{
-					const string reason = "Its domain doesn't exist on this site. Import the domain (Culture and Hostnames) first, or check the hostname is the same here.";
+					const string reason = "Its content node doesn't exist on this site, is in the recycle bin, or has no hostname in Culture and Hostnames. Import the content (with its domains) first.";
 					Log.DeserializeInvalid(logger, alias, reason);
 					return SyncAttempt<CspDefinition>.Fail(alias, ChangeType.Fail, reason);
 				}
@@ -111,20 +107,20 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 				definition = new CspDefinition
 				{
 					Id = nodeKey,
-					DomainKey = domainKey,
+					ContentKey = contentKey,
 					IsBackOffice = false
 				};
 			}
 			else
 			{
-				// Only the two global definitions exist without a domain.
+				// Only the two global definitions exist without a content node.
 				return SyncAttempt<CspDefinition>.Fail(alias, ChangeType.Fail, "Cannot find CSPDefinition");
 			}
 		}
-		else if (definition.DomainKey != (domainKey == Guid.Empty ? null : domainKey))
+		else if (definition.ContentKey != (contentKey == Guid.Empty ? null : contentKey))
 		{
-			// An existing definition never changes between global and domain policy, or between domains.
-			return SyncAttempt<CspDefinition>.Fail(alias, ChangeType.Fail, "The CSP definition's domain does not match the existing definition");
+			// An existing definition never changes between global and domain policy, or between nodes.
+			return SyncAttempt<CspDefinition>.Fail(alias, ChangeType.Fail, "The CSP definition's content node does not match the existing definition");
 		}
 
 		var details = new List<uSyncChange>();
@@ -134,7 +130,7 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 		definition.Enabled = enabled;
 
 		// Domain policies are never backoffice policies, whatever the file says.
-		var isBackOffice = definition.DomainKey is null && infoNode.Element("IsBackOffice").ValueOrDefault(false);
+		var isBackOffice = definition.ContentKey is null && infoNode.Element("IsBackOffice").ValueOrDefault(false);
 		details.AddIfUpdated(nameof(definition.IsBackOffice), definition.IsBackOffice, isBackOffice);
 		definition.IsBackOffice = isBackOffice;
 
@@ -176,12 +172,6 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 		Log.DeserializeComplete(logger, alias, details.Count);
 
 		return SyncAttempt<CspDefinition>.Succeed(ItemAlias(definition), definition, ChangeType.Import, details);
-	}
-
-	private async Task<bool> DomainExistsAsync(Guid domainKey)
-	{
-		var domains = await _domainService.GetAllAsync(includeWildcards: false);
-		return domains.Any(d => !string.IsNullOrWhiteSpace(d.DomainName) && CspDomainKey.FromDomainName(d.DomainName) == domainKey);
 	}
 
 	private static List<CspDefinitionSource> DeserializeSources(XElement node, CspDefinition definition, List<uSyncChange> details)
@@ -239,9 +229,9 @@ public class CspDefinitionSerializer : SyncSerializerRoot<CspDefinition>, ISyncS
 		);
 
 		// Only domain policies carry the element, so the global definitions' files are unchanged.
-		if (item.DomainKey is { } domainKey)
+		if (item.ContentKey is { } contentKey)
 		{
-			info.Add(new XElement("DomainKey", domainKey));
+			info.Add(new XElement(nameof(CspDefinition.ContentKey), contentKey));
 		}
 
 		node.Add(info);

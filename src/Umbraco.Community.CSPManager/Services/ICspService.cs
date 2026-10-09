@@ -36,42 +36,51 @@ public interface ICspService
 	Task<CspDefinition?> GetCspDefinitionAsync(Guid key, CancellationToken cancellationToken);
 
 	/// <summary>
-	/// Retrieves the domain policy for an Umbraco domain from the database.
+	/// Retrieves the domain policy of a content node from the database.
 	/// </summary>
-	/// <param name="domainKey">The domain key, see <see cref="CspDomainKey.FromDomainName"/>.</param>
+	/// <param name="contentKey">The key of the content node the policy belongs to.</param>
 	/// <param name="cancellationToken">A cancellation token to observe while waiting for the task to complete.</param>
-	/// <returns>The domain policy, or <c>null</c> if the domain has none.</returns>
-	Task<CspDefinition?> GetCspDefinitionForDomainAsync(Guid domainKey, CancellationToken cancellationToken);
+	/// <returns>The domain policy, or <c>null</c> if the node has none.</returns>
+	Task<CspDefinition?> GetCspDefinitionForDomainAsync(Guid contentKey, CancellationToken cancellationToken);
 
 	/// <summary>
-	/// Retrieves the domain policy for an Umbraco domain from the runtime cache, loading it from the
+	/// Retrieves the domain policy of a content node from the runtime cache, loading it from the
 	/// database if it isn't cached.
 	/// </summary>
-	/// <param name="domainKey">The domain key, see <see cref="CspDomainKey.FromDomainName"/>.</param>
+	/// <param name="contentKey">The key of the content node the policy belongs to.</param>
 	/// <param name="cancellationToken">A cancellation token to observe while waiting for the task to complete.</param>
 	/// <returns>
-	/// A defensive copy of the cached domain policy, or <c>null</c> if the domain has none. The
-	/// absence of a policy is cached too, until a policy for the domain is saved.
+	/// A defensive copy of the cached domain policy, or <c>null</c> if the node has none. The
+	/// absence of a policy is cached too, until a policy for the node is saved.
 	/// </returns>
-	Task<CspDefinition?> GetCachedCspDefinitionForDomainAsync(Guid domainKey, CancellationToken cancellationToken);
+	Task<CspDefinition?> GetCachedCspDefinitionForDomainAsync(Guid contentKey, CancellationToken cancellationToken);
 
 	/// <summary>
-	/// Retrieves every domain policy, including orphaned ones whose domain has since been removed.
+	/// Retrieves every domain policy, including orphaned ones whose node was deleted or lost its hostnames.
 	/// </summary>
 	/// <param name="cancellationToken">A cancellation token to observe while waiting for the task to complete.</param>
 	/// <returns>The domain policies with their sources.</returns>
 	Task<List<CspDefinition>> GetAllDomainPoliciesAsync(CancellationToken cancellationToken);
 
 	/// <summary>
-	/// Creates a domain policy for an Umbraco domain as a copy of the global frontend policy.
+	/// Checks whether a domain policy can apply to a content node: the node exists, isn't in the
+	/// recycle bin and has at least one hostname (non-wildcard domain) assigned.
 	/// </summary>
-	/// <param name="domainKey">The key (see <see cref="CspDomainKey.FromDomainName"/>) of an existing, non-wildcard Umbraco domain.</param>
+	/// <param name="contentKey">The key of the content node.</param>
+	/// <param name="cancellationToken">A cancellation token to observe while waiting for the task to complete.</param>
+	/// <returns><c>true</c> when a domain policy for the node applies to requests on its hostnames.</returns>
+	Task<bool> ContentNodeHasHostnameAsync(Guid contentKey, CancellationToken cancellationToken);
+
+	/// <summary>
+	/// Creates a domain policy for a content node as an enabled copy of the global frontend policy.
+	/// </summary>
+	/// <param name="contentKey">The key of a content node with at least one hostname (non-wildcard domain) assigned.</param>
 	/// <param name="cancellationToken">A cancellation token to observe while waiting for the task to complete.</param>
 	/// <returns>The saved domain policy.</returns>
 	/// <exception cref="CspDefinitionValidationException">
-	/// The domain doesn't exist, is a wildcard domain, or already has a policy.
+	/// The node doesn't exist, has no hostname, or already has a policy.
 	/// </exception>
-	Task<CspDefinition> CreateCspDefinitionForDomainAsync(Guid domainKey, CancellationToken cancellationToken);
+	Task<CspDefinition> CreateCspDefinitionForDomainAsync(Guid contentKey, CancellationToken cancellationToken);
 
 	/// <summary>
 	/// Deletes a domain policy and publishes a <see cref="Notifications.CspDeletedNotification"/>.
@@ -81,22 +90,6 @@ public interface ICspService
 	/// <param name="cancellationToken">A cancellation token to observe while waiting for the task to complete.</param>
 	/// <exception cref="CspDefinitionValidationException">The id is one of the two global policies.</exception>
 	Task DeleteCspDefinitionAsync(Guid id, CancellationToken cancellationToken);
-
-	/// <summary>
-	/// Moves an orphaned domain policy to an active domain without an assigned policy.
-	/// </summary>
-	/// <param name="id">The id of the orphaned domain policy.</param>
-	/// <param name="domainKey">The key of an existing, non-wildcard Umbraco domain.</param>
-	/// <param name="cancellationToken">A cancellation token.</param>
-	/// <returns>The policy recreated under the new domain key with a new id.</returns>
-	/// <remarks>
-	/// Recreates the policy under a new id and deletes the orphan in a single transaction,
-	/// publishing <see cref="Notifications.CspDeletedNotification"/> and <see cref="Notifications.CspSavedNotification"/>.
-	/// </remarks>
-	/// <exception cref="CspDefinitionValidationException">
-	/// The id is not an orphaned domain policy, or the target domain is invalid or already assigned.
-	/// </exception>
-	Task<CspDefinition> MoveDomainPolicyAsync(Guid id, Guid domainKey, CancellationToken cancellationToken);
 
 	/// <summary>
 	/// Retrieves the CSP definition from the runtime cache, loading from the database if not cached.
@@ -122,8 +115,8 @@ public interface ICspService
 	/// <param name="cancellationToken">A cancellation token to observe while waiting for the task to complete.</param>
 	/// <returns>The saved <see cref="CspDefinition"/> with any modifications applied during save.</returns>
 	/// <remarks>
-	/// Strips whitespace sources and validates identity: global policies cannot carry a domain key,
-	/// domain policies require an existing non-wildcard domain, and empty IDs receive a newly generated GUID.
+	/// Strips whitespace sources and validates identity: global policies cannot carry a content key,
+	/// domain policies require a content node with a hostname, and empty IDs receive a newly generated GUID.
 	/// </remarks>
 	/// <exception cref="CspDefinitionValidationException">The definition fails identity or content validation.</exception>
 	Task<CspDefinition> SaveCspDefinitionAsync(CspDefinition definition, CancellationToken cancellationToken);

@@ -4,6 +4,7 @@ import type { UmbControllerHost } from '@umbraco-cms/backoffice/controller-api';
 import { UmbLocalizationController } from '@umbraco-cms/backoffice/localization-api';
 import { UmbCspDefinitionRepository } from '@/repository/csp-definition.repository.js';
 import type { CspApiDomainPolicy } from '@/api';
+import { domainPolicyLabel } from '@/domain-policy-label';
 
 export interface CspTreeItemModel extends UmbTreeItemModel {
 	icon: string;
@@ -109,12 +110,16 @@ export class CspTreeDataSource {
 	}
 
 	#toTreeItem(policy: CspApiDomainPolicy): CspTreeItemModel {
-		// The name is rendered by the tree item as text; never as HTML.
-		const label = policy.isOrphaned || !policy.domainName
-			? this.#localize.term('cspManagerDomainPolicy_removedDomain', policy.domainKey.slice(0, 8))
-			: policy.domainName;
-		// An inactive policy is kept but the domain uses the Frontend policy (or no header).
-		const name = policy.enabled ? label : this.#localize.term('cspManagerDomainPolicy_treeInactive', label);
+		// The name is rendered by the tree item as text; never as HTML. A policy is labelled with its
+		// content node, since it covers every hostname (culture) of that node.
+		const label = domainPolicyLabel(this.#localize, policy);
+		// An orphan (node without hostname) applies to nothing; an inactive policy is kept but the
+		// node's hostnames use the Frontend policy (or no header).
+		const name = policy.isOrphaned && policy.contentName
+			? this.#localize.term('cspManagerDomainPolicy_treeNoHostname', label)
+			: policy.enabled || policy.isOrphaned
+				? label
+				: this.#localize.term('cspManagerDomainPolicy_treeInactive', label);
 
 		return {
 			unique: policy.id,

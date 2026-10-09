@@ -35,13 +35,15 @@ public class CspDefinition
 	public bool UpgradeInsecureRequests { get; set; }
 
 	/// <summary>
-	/// Gets or sets the key of the Umbraco domain this policy applies to, derived via <see cref="CspDomainKey.FromDomainName"/>.
+	/// Gets or sets the key of the content node this domain policy belongs to: a node with at least
+	/// one hostname assigned in Culture and Hostnames. <c>null</c> for the two global policies.
 	/// </summary>
 	/// <remarks>
-	/// When set, this definition overrides the global frontend policy for requests routed through the matching domain.
+	/// When set, this definition overrides the global frontend policy for requests routed through any
+	/// of the node's hostnames (every culture of a multilingual site shares the one policy).
 	/// </remarks>
 	[NullSetting(NullSetting = NullSettings.Null)]
-	public Guid? DomainKey { get; set; }
+	public Guid? ContentKey { get; set; }
 
 	[ResultColumn]
 	[Reference(ReferenceType.Many,

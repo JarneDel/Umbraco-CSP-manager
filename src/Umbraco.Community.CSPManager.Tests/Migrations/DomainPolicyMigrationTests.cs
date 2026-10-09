@@ -34,7 +34,7 @@ public class DomainPolicyMigrationTests : UmbracoIntegrationTest
 
 	// The full plan on an empty database is the fresh-install path: InitialCspManagerMigration must
 	// insert its seed row through its own schema type, since CspDefinition now has a column
-	// (DomainKey) that only a later migration adds.
+	// (ContentKey) that only a later migration adds.
 	[Test]
 	public async Task FreshInstall_RunsTheWholePlan_AndSeedsTheBackOfficePolicy()
 	{
@@ -44,10 +44,10 @@ public class DomainPolicyMigrationTests : UmbracoIntegrationTest
 		Assert.Multiple(() =>
 		{
 			Assert.That(backoffice.Id, Is.EqualTo(Constants.DefaultBackofficeId));
-			Assert.That(backoffice.DomainKey, Is.Null);
+			Assert.That(backoffice.ContentKey, Is.Null);
 			Assert.That(backoffice.Sources, Is.Not.Empty);
 		});
-		AssertDomainKeyColumnAndIndexExist();
+		AssertContentKeyColumnAndIndexExist();
 		Assert.That(CountDefinitionsLockRows(), Is.EqualTo(1));
 	}
 
@@ -76,7 +76,7 @@ public class DomainPolicyMigrationTests : UmbracoIntegrationTest
 
 		await CspTestMigrationHelper.RunMigrationsAsync(executor, ScopeProvider, keyValueService);
 
-		AssertDomainKeyColumnAndIndexExist();
+		AssertContentKeyColumnAndIndexExist();
 		Assert.That(CountDefinitionsLockRows(), Is.EqualTo(1), "an upgrade gets the lock row too");
 		var cspService = GetRequiredService<ICspService>();
 		var frontend = await cspService.GetCspDefinitionAsync(isBackOfficeRequest: false, CancellationToken.None);
@@ -84,7 +84,7 @@ public class DomainPolicyMigrationTests : UmbracoIntegrationTest
 		{
 			Assert.That(frontend.Id, Is.EqualTo(Constants.DefaultFrontEndId));
 			Assert.That(frontend.Enabled, Is.True);
-			Assert.That(frontend.DomainKey, Is.Null);
+			Assert.That(frontend.ContentKey, Is.Null);
 			Assert.That(await cspService.GetAllDomainPoliciesAsync(CancellationToken.None), Is.Empty);
 		});
 	}
@@ -124,7 +124,7 @@ public class DomainPolicyMigrationTests : UmbracoIntegrationTest
 		return scope.Database.ExecuteScalar<int>("SELECT COUNT(*) FROM umbracoLock WHERE id = @0", Constants.Locks.Definitions);
 	}
 
-	private void AssertDomainKeyColumnAndIndexExist()
+	private void AssertContentKeyColumnAndIndexExist()
 	{
 		using var scope = ScopeProvider.CreateScope(autoComplete: true);
 		var columns = scope.SqlContext.SqlSyntax.GetColumnsInSchema(scope.Database)
@@ -137,12 +137,12 @@ public class DomainPolicyMigrationTests : UmbracoIntegrationTest
 
 		Assert.Multiple(() =>
 		{
-			Assert.That(columns, Does.Contain(nameof(CspDefinition.DomainKey)));
-			Assert.That(indexes, Does.Contain(DomainPolicyMigration.DomainKeyIndexName));
+			Assert.That(columns, Does.Contain(nameof(CspDefinition.ContentKey)));
+			Assert.That(indexes, Does.Contain(DomainPolicyMigration.ContentKeyIndexName));
 		});
 	}
 
-	// The CspDefinition table as it was before the DomainKey column. NPoco maps every property.
+	// The CspDefinition table as it was before the ContentKey column. NPoco maps every property.
 	// ReSharper disable UnusedMember.Local, UnusedAutoPropertyAccessor.Local
 	[TableName(nameof(CspDefinition))]
 	[PrimaryKey(nameof(Id), AutoIncrement = false)]

@@ -17,7 +17,7 @@ Raised when the middleware is building a CSP definition for an HTTP request, bef
 - `HttpContext` — the current HTTP context
 
 {: .note }
-When a request matches a domain with a [domain policy](../features/domain-policies), `CspDefinition` represents that domain policy. Its `DomainKey` property is populated, and `IsBackOffice` is `false`. To identify frontend requests regardless of whether a domain policy applies, check `!IsBackOffice` rather than comparing `Id` to `DefaultFrontEndId`.
+When a request matches a domain with a [domain policy](../features/domain-policies), `CspDefinition` represents that domain policy. Its `ContentKey` property (the key of the content node the routed hostname belongs to) is populated, and `IsBackOffice` is `false`. To identify frontend requests regardless of whether a domain policy applies, check `!IsBackOffice` rather than comparing `Id` to `DefaultFrontEndId`.
 
 ```csharp
 using Umbraco.Cms.Core.Events;
@@ -72,7 +72,7 @@ public class CustomCspSavedHandler : INotificationHandler<CspSavedNotification>
 
 ## CspDeletedNotification
 
-Raised after a [domain policy](../features/domain-policies) has been deleted and the deletion committed. Global policies cannot be deleted, so this is only raised for domain policies. Moving an orphaned policy to another domain raises this for the old policy, followed by `CspSavedNotification` for the policy under its new domain and id.
+Raised after a [domain policy](../features/domain-policies) has been deleted and the deletion committed. Global policies cannot be deleted, so this is only raised for domain policies.
 
 **Properties**:
 - `CspDefinition` — the definition as it was before deletion
@@ -85,9 +85,9 @@ public class CustomCspDeletedHandler : INotificationHandler<CspDeletedNotificati
 {
     public void Handle(CspDeletedNotification notification)
     {
-        _logger.LogInformation("Domain CSP policy {Id} ({DomainKey}) deleted",
+        _logger.LogInformation("Domain CSP policy {Id} (content node {ContentKey}) deleted",
             notification.CspDefinition.Id,
-            notification.CspDefinition.DomainKey);
+            notification.CspDefinition.ContentKey);
     }
 }
 ```

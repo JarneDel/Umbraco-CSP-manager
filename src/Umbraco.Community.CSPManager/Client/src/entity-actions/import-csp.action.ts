@@ -1,6 +1,8 @@
 import { UmbEntityActionBase } from '@umbraco-cms/backoffice/entity-action';
 import { umbOpenModal } from '@umbraco-cms/backoffice/modal';
+import { UmbLocalizationController } from '@umbraco-cms/backoffice/localization-api';
 import { CspConstants, isGlobalPolicyId } from '@/constants';
+import { domainPolicyLabel } from '@/domain-policy-label';
 import { UmbCspDefinitionRepository } from '../repository/csp-definition.repository.js';
 import { UmbCspDirectivesRepository } from '../repository/csp-directives.repository.js';
 import { IMPORT_CSP_MODAL } from '../modals/import-csp-modal.token.js';
@@ -32,7 +34,7 @@ export class UmbImportCspEntityAction extends UmbEntityActionBase<never> {
 
 		const result = await umbOpenModal(this, IMPORT_CSP_MODAL, {
 			data: {
-				policyLabel: isDomainPolicy ? (definition.domainName ?? policyType.label) : policyType.label,
+				policyLabel: isDomainPolicy ? domainPolicyLabel(new UmbLocalizationController(this), definition) : policyType.label,
 				availableDirectives: directives ?? [],
 			},
 		}).catch(() => null);

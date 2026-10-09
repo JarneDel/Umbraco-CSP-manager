@@ -42,16 +42,16 @@ The package registers a uSync serializer for `CspDefinition` objects. When uSync
 
 ## Domain policies
 
-[Domain policies](../features/domain-policies) sync alongside global policies. Exported files include the `DomainKey` in the filename (`csp.domain.{domainKey}.config`). Deleting a domain policy writes a delete marker so the removal syncs on the next import. Moving an orphaned policy to another domain exports as a delete of the old policy plus a new policy, so sync the renamed hostname (Culture and Hostnames) before the CSP policies.
+[Domain policies](../features/domain-policies) sync alongside global policies. Each is exported as `CspDefinitions/domain-{contentKey}.config`, where `contentKey` is the key of the content node the policy belongs to. uSync keeps content keys the same on every environment, so a policy lines up even when the node's hostnames differ per environment. Deleting a domain policy writes a delete marker so the removal syncs on the next import.
 
 | Import condition | Outcome |
 |---|---|
 | Policy does not exist on target | Created with the exported ID. |
-| Target already has a policy for that domain | Existing policy is updated. |
-| Domain does not exist on target | Import fails with an error. Import domains (Culture and Hostnames) before importing CSP policies. |
-| File reassigns an existing policy ID to a different domain | Import fails with an error. |
+| Target already has a policy for that content node | Existing policy is updated. |
+| Content node does not exist on target, or has no hostname | Import fails with an error. Import the content and its Culture and Hostnames before importing CSP policies. |
+| File reassigns an existing policy ID to a different content node | Import fails with an error. |
 | Policy contains invalid values (e.g. `;`, `,`, newlines, unknown directives) | Import fails with validation errors. |
 
 {: .note }
-Domain policies match the hostname string configured in Culture and Hostnames. They only apply on environments configured with the matching hostname.
+Domain policies belong to a content node, not to a hostname. On each environment they apply to whatever hostnames that node has in Culture and Hostnames, so local, staging and production hostnames can differ.
 

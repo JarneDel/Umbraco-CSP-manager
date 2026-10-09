@@ -21,9 +21,6 @@ import type {
 	GetDomainsData,
 	GetDomainsErrors,
 	GetDomainsResponses,
-	PostDefinitionsByIdMoveData,
-	PostDefinitionsByIdMoveErrors,
-	PostDefinitionsByIdMoveResponses,
 	PostDefinitionsCreateFromFrontendData,
 	PostDefinitionsCreateFromFrontendErrors,
 	PostDefinitionsCreateFromFrontendResponses,
@@ -79,16 +76,6 @@ export class Definitions {
 		return (options.client ?? client).get<GetDefinitionsByIdResponses, GetDefinitionsByIdErrors, ThrowOnError>({
 			security: [{ scheme: 'bearer', type: 'http' }],
 			url: '/umbraco/csp/api/v1/Definitions/{id}',
-			...options,
-		});
-	}
-
-	public static postDefinitionsByIdMove<ThrowOnError extends boolean = true>(
-		options: Options<PostDefinitionsByIdMoveData, ThrowOnError>,
-	): RequestResult<PostDefinitionsByIdMoveResponses, PostDefinitionsByIdMoveErrors, ThrowOnError> {
-		return (options.client ?? client).post<PostDefinitionsByIdMoveResponses, PostDefinitionsByIdMoveErrors, ThrowOnError>({
-			security: [{ scheme: 'bearer', type: 'http' }],
-			url: '/umbraco/csp/api/v1/Definitions/{id}/move',
 			...options,
 		});
 	}

@@ -40,10 +40,6 @@ export class UmbCspDefinitionContext extends UmbContextBase {
 	async deleteDomainPolicy(id: string) {
 		return await this.#repository.delete(id);
 	}
-
-	async moveDomainPolicy(id: string, domainKey: string) {
-		return await this.#repository.move(id, domainKey);
-	}
 }
 
 export default UmbCspDefinitionContext;

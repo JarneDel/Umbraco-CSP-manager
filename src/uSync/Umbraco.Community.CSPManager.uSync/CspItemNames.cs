@@ -14,12 +14,12 @@ internal static class CspItemNames
 	public const string DomainAliasPrefix = "domain-";
 
 	public static string Alias(CspDefinition definition)
-		=> definition.DomainKey is { } domainKey
-			? $"{DomainAliasPrefix}{domainKey:D}"
+		=> definition.ContentKey is { } contentKey
+			? $"{DomainAliasPrefix}{contentKey:D}"
 			: definition.IsBackOffice ? BackOfficeAlias : FrontEndAlias;
 
 	public static string Name(CspDefinition definition)
-		=> definition.DomainKey is { } domainKey
-			? $"Domain {domainKey:D}"
+		=> definition.ContentKey is { } contentKey
+			? $"Domain policy {contentKey:D}"
 			: definition.IsBackOffice ? "Backoffice" : "Frontend";
 }

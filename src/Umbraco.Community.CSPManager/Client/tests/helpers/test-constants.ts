@@ -30,11 +30,21 @@ export const EntityActions = {
 	addDomainPolicy: "Add Domain Policy",
 } as const;
 
-/** Domains seeded on the test site's homepage (uSync/v18/Domains). */
+/**
+ * Hostnames seeded on the test site (uSync/v18/Domains). The homepage is a multilingual site with a
+ * hostname per culture; Test Pages, below it, has its own hostname (a nested site).
+ */
 export const TestDomains = {
 	enGb: "/en-gb",
 	enUs: "/en-us",
 	hostname: "csp-test.localhost:44370",
+	testPages: "/test-pages",
+} as const;
+
+/** The content nodes those hostnames are assigned to: domain policies belong to these. */
+export const TestNodes = {
+	homepage: "Homepage",
+	testPages: "Test Pages",
 } as const;
 
 /**

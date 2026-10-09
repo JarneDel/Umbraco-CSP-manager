@@ -11,14 +11,14 @@ public sealed class CspApiDomainPolicy
 	public Guid Id { get; set; }
 
 	/// <summary>
-	/// Gets or sets the key of the domain the policy applies to (see <see cref="CspDomainKey.FromDomainName"/>).
+	/// Gets or sets the key of the content node the policy belongs to.
 	/// </summary>
-	public Guid DomainKey { get; set; }
+	public Guid ContentKey { get; set; }
 
 	/// <summary>
-	/// Gets or sets the domain name, or <c>null</c> when the domain no longer exists.
+	/// Gets or sets the name of the content node, or <c>null</c> when the node no longer exists.
 	/// </summary>
-	public string? DomainName { get; set; }
+	public string? ContentName { get; set; }
 
 	/// <summary>
 	/// Gets or sets a value indicating whether the policy is enabled.
@@ -26,7 +26,9 @@ public sealed class CspApiDomainPolicy
 	public bool Enabled { get; set; }
 
 	/// <summary>
-	/// Gets or sets a value indicating whether the associated domain was removed or renamed in Umbraco.
+	/// Gets or sets a value indicating whether the policy is orphaned: its node was deleted, is in the
+	/// recycle bin or no longer has a hostname. An orphaned policy has no effect on any request; it is
+	/// kept so it comes back into use when a hostname is (re-)assigned to the node, and can be deleted.
 	/// </summary>
 	public bool IsOrphaned { get; set; }
 }

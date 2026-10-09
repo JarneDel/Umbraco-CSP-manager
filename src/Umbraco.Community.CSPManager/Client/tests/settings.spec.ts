@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test";
 import { test } from "@umbraco/playwright-testhelpers";
-import { CspApiHelpers, CspDefinitionBuilder, CspTestHelpers, EntityActions, TestDomains, WorkspaceTabs } from "./helpers";
+import { CspApiHelpers, CspDefinitionBuilder, CspTestHelpers, EntityActions, TestNodes, WorkspaceTabs } from "./helpers";
 import { CspConstants } from "../src/constants";
 
 // The API calls authenticate with the backoffice cookies, refreshed once the backoffice has loaded.
@@ -46,7 +46,7 @@ test.describe("Reporting settings", () => {
 
 		// The draft starts as a copy of the Frontend policy, report-to included.
 		await csp.openEntityActionFromMenu(CspConstants.policyTypes.frontend.label, EntityActions.addDomainPolicy);
-		await csp.addDomainPolicyModal().locator(`uui-ref-node[name="${TestDomains.enGb}"]`).click();
+		await csp.addDomainPolicyModal().locator(`uui-ref-node[name="${TestNodes.homepage}"]`).click();
 		await expect(umbracoUi.page).toHaveURL(/\/workspace\/csp-policy\/create\//);
 		await csp.workspaceTab(WorkspaceTabs.settings).click();
 		await csp.workspace().locator('uui-radio[value="none"]').click();

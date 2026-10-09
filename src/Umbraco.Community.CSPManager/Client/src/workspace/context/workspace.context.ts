@@ -11,6 +11,7 @@ import { UmbRequestReloadChildrenOfEntityEvent, UmbRequestReloadStructureForEnti
 import type { CspApiDefinition } from '@/api';
 import { UmbCspDefinitionContext, UmbCspDirectivesContext } from '@/contexts/index';
 import { UmbError, type UmbApiError, type UmbCancelError } from '@umbraco-cms/backoffice/resources';
+import { UmbLocalizationController } from '@umbraco-cms/backoffice/localization-api';
 import { CspConstants, isGlobalPolicyId, type PolicyType } from '@/constants';
 
 export interface WorkspaceState {
@@ -50,6 +51,7 @@ export class UmbCspManagerWorkspaceContext
 
 	#cspDefinitionContext: UmbCspDefinitionContext;
 	#cspDirectivesContext: UmbCspDirectivesContext;
+	#localize = new UmbLocalizationController(this);
 
 	readonly state = this.#state.asObservable();
 
@@ -98,10 +100,10 @@ export class UmbCspManagerWorkspaceContext
 				},
 			},
 			{
-				path: 'create/:domainKey',
+				path: 'create/:contentKey',
 				component: () => import('../csp-management-workspace.element.js'),
 				setup: (_component, info) => {
-					this.#loadNew(decodeURIComponent(info.match.params.domainKey));
+					this.#loadNew(decodeURIComponent(info.match.params.contentKey));
 				},
 			},
 		]);
@@ -119,7 +121,7 @@ export class UmbCspManagerWorkspaceContext
 	 * Builds an unsaved draft for a new domain policy from the Frontend policy. Nothing is persisted
 	 * until save(); the id stays empty so the server assigns it.
 	 */
-	async #loadNew(domainKey: string) {
+	async #loadNew(contentKey: string) {
 		const version = ++this.#loadVersion;
 		this.#policyId = null;
 		this.#allowNavigateAway = false;
@@ -141,15 +143,27 @@ export class UmbCspManagerWorkspaceContext
 			return;
 		}
 
-		const domain = domainsResult.data?.find((d) => d.key === domainKey);
+		// A stale or hand-typed URL: the node lost its hostname, was deleted or trashed, or already
+		// has a policy. Shown now rather than as a 400 on save.
+		const node = domainsResult.data?.find((n) => n.contentKey === contentKey);
+		if (!node || node.hasCspPolicy) {
+			this.#state.update({
+				loading: false,
+				error: new UmbError(this.#localize.term('cspManagerDomainPolicy_createUnavailable')),
+			});
+			return;
+		}
+
 		const newId = CspConstants.domainPolicy.newId;
 		const draft: CspApiDefinition = {
 			...structuredClone(frontendResult.data),
 			id: newId,
+			// Always on: a new domain policy should apply, whether or not the Frontend policy is on.
+			enabled: true,
 			isBackOffice: false,
-			domainKey,
-			domainName: domain?.name ?? null,
-			rootContentKey: domain?.rootContentKey ?? null,
+			contentKey,
+			contentName: node.contentName,
+			domains: node.domains,
 			disabledDomainPolicyBehavior: null,
 			sources: frontendResult.data.sources.map((s) => ({ ...s, definitionId: newId, directives: [...s.directives] })),
 		};
@@ -295,28 +309,6 @@ export class UmbCspManagerWorkspaceContext
 		this.#allowNavigateAway = true;
 		await this.#reloadDomainPoliciesInTree();
 		return { success: true };
-	}
-
-	/**
-	 * Moves the orphaned domain policy this workspace shows to another domain. The server re-creates
-	 * it under a new id, so the caller navigates to the returned policy.
-	 */
-	async moveDomainPolicy(
-		domainKey: string,
-	): Promise<{ data?: CspApiDefinition; error?: UmbError | UmbApiError | UmbCancelError | Error }> {
-		const id = this.#policyId;
-		if (!id || !this.isDomainPolicy() || this.#state.getValue().isNew) {
-			return { error: new Error('Only a saved domain policy can be moved') };
-		}
-
-		const { data, error } = await this.#cspDefinitionContext.moveDomainPolicy(id, domainKey);
-		if (error || !data) {
-			return { error };
-		}
-
-		this.#allowNavigateAway = true;
-		await this.#reloadDomainPoliciesInTree();
-		return { data };
 	}
 
 	async #reloadDomainPoliciesInTree() {

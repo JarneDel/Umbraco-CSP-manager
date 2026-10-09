@@ -47,7 +47,7 @@ export class UmbCspDefinitionRepository extends UmbRepositoryBase {
 	}
 
 	/**
-	 * Get every domain policy (including orphaned ones whose domain was removed)
+	 * Get every domain policy (including orphaned ones whose content node lost its hostnames)
 	 */
 	async getDomainPolicies() {
 		const { data, error } = await tryExecute(this, Definitions.getDefinitionsDomainPolicies(), {
@@ -62,7 +62,7 @@ export class UmbCspDefinitionRepository extends UmbRepositoryBase {
 	}
 
 	/**
-	 * Get the Umbraco domains a domain policy can be created for
+	 * Get the content nodes (with their hostnames) a domain policy can be created for
 	 */
 	async getDomains() {
 		const { data, error } = await tryExecute(this, Domains.getDomains(), { disableNotifications: false });
@@ -85,26 +85,6 @@ export class UmbCspDefinitionRepository extends UmbRepositoryBase {
 			}),
 			{ disableNotifications: false }
 		);
-
-		return { error };
-	}
-
-	/**
-	 * Move an orphaned domain policy to another domain. Returns the policy under its new id.
-	 */
-	async move(id: string, domainKey: string) {
-		const { data, error } = await tryExecute(
-			this,
-			Definitions.postDefinitionsByIdMove({
-				path: { id },
-				query: { domainKey },
-			}),
-			{ disableNotifications: false }
-		);
-
-		if (data) {
-			return { data };
-		}
 
 		return { error };
 	}

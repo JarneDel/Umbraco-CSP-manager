@@ -74,8 +74,8 @@ internal static partial class Log
 	[LoggerMessage(
 		EventId = 10,
 		Level = LogLevel.Debug,
-		Message = "Domain policy {DefinitionId} applies to {Path} (domain {DomainKey})")]
-	public static partial void CspDomainPolicyApplied(ILogger logger, Guid definitionId, Guid domainKey, PathString path);
+		Message = "Domain policy {DefinitionId} applies to {Path} (content node {ContentKey})")]
+	public static partial void CspDomainPolicyApplied(ILogger logger, Guid definitionId, Guid contentKey, PathString path);
 
 	[LoggerMessage(
 		EventId = 11,
@@ -140,12 +140,6 @@ internal static partial class Log
 		Level = LogLevel.Warning,
 		Message = "Rejected save of CSP definition {DefinitionId}: {Reason}")]
 	public static partial void CspDefinitionSaveRejected(ILogger logger, Guid definitionId, string reason);
-
-	[LoggerMessage(
-		EventId = 107,
-		Level = LogLevel.Information,
-		Message = "Moved orphaned CSP definition {DefinitionId} to {Context} as {NewDefinitionId}")]
-	public static partial void CspDefinitionMoved(ILogger logger, Guid definitionId, string context, Guid newDefinitionId);
 
 	// ===========================================
 	// Cache Events (200-299)

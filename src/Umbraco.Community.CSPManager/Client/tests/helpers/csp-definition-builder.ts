@@ -21,7 +21,7 @@ export class CspDefinitionBuilder {
 	private _reportingDirective: string | null = null;
 	private _reportUri: string | null = null;
 	private _sources: Array<{ source: string; directives: string[] }> = [];
-	private _domainKey: string | null = null;
+	private _contentKey: string | null = null;
 
 	private constructor(policy: PolicyKey) {
 		const policyType = CspConstants.policyTypes[policy];
@@ -41,11 +41,11 @@ export class CspDefinitionBuilder {
 		return new CspDefinitionBuilder(policy);
 	}
 
-	/** A new domain policy: posted with the empty id, so the server assigns one. */
-	static domainPolicy(domainKey: string): CspDefinitionBuilder {
+	/** A new domain policy for a content node: posted with the empty id, so the server assigns one. */
+	static domainPolicy(contentKey: string): CspDefinitionBuilder {
 		const builder = new CspDefinitionBuilder("frontend");
 		builder._id = CspConstants.domainPolicy.newId;
-		builder._domainKey = domainKey;
+		builder._contentKey = contentKey;
 		return builder;
 	}
 
@@ -95,7 +95,8 @@ export class CspDefinitionBuilder {
 			upgradeInsecureRequests: this._upgradeInsecureRequests,
 			reportingDirective: this._reportingDirective,
 			reportUri: this._reportUri,
-			domainKey: this._domainKey,
+			contentKey: this._contentKey,
+			domains: [],
 			sources,
 		};
 	}

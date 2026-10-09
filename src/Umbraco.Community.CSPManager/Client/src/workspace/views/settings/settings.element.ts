@@ -7,6 +7,7 @@ import {
 	type WorkspaceState,
 } from '../../context/workspace.context.js';
 import { CspConstants, type PolicyType } from '@/constants';
+import { domainPolicyLabel } from '@/domain-policy-label';
 
 @customElement('umb-csp-settings-view')
 export class UmbCspSettingsViewElement extends UmbLitElement {
@@ -55,7 +56,7 @@ export class UmbCspSettingsViewElement extends UmbLitElement {
 
 	private _scopeLabel(): string {
 		if (this._isDomainPolicy) {
-			return this._workspaceState.definition?.domainName ?? this.localize.term('cspManagerDomainPolicy_removedDomain', (this._workspaceState.definition?.domainKey ?? '').slice(0, 8));
+			return domainPolicyLabel(this.localize, this._workspaceState.definition ?? {});
 		}
 
 		return this._policyType === CspConstants.policyTypes.backoffice ? 'back office' : 'frontend';

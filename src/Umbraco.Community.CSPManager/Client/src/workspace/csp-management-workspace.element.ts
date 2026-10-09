@@ -5,6 +5,7 @@ import type { UmbNotificationContext } from '@umbraco-cms/backoffice/notificatio
 import { umbConfirmModal } from '@umbraco-cms/backoffice/modal';
 import { UMB_CSP_MANAGER_WORKSPACE_CONTEXT, type WorkspaceState } from './context/workspace.context.js';
 import { CspConstants, type PolicyType } from '@/constants';
+import { domainPolicyLabel } from '@/domain-policy-label';
 
 @customElement('umb-csp-management-workspace')
 export class UmbCspManagementWorkspaceElement extends UmbLitElement {
@@ -53,13 +54,9 @@ export class UmbCspManagementWorkspaceElement extends UmbLitElement {
 		});
 	}
 
-	/** The domain name, or a "removed domain" label for an orphaned policy. Rendered as text only. */
+	/** The content node's name, or a "deleted content" label. Rendered as text only. */
 	private get _domainLabel(): string {
-		const definition = this._workspaceState.definition;
-		return (
-			definition?.domainName ??
-			this.localize.term('cspManagerDomainPolicy_removedDomain', (definition?.domainKey ?? '').slice(0, 8))
-		);
+		return domainPolicyLabel(this.localize, this._workspaceState.definition ?? {});
 	}
 
 	private get _headline(): string {

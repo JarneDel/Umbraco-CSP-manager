@@ -47,11 +47,11 @@ Controls which policy applies when a request matches a domain whose [domain poli
 
 | Value | Behaviour |
 |---|---|
-| `FallbackToGlobal` | Applies the Frontend policy, as if the domain had no policy. Disabling a domain policy retains baseline site protection. |
-| `NoHeader` | Sends no CSP header for that domain, matching the behaviour of a disabled Frontend policy. |
+| `FallbackToGlobal` | Applies the Frontend policy, as if the node had no domain policy. Disabling a domain policy retains baseline site protection. |
+| `NoHeader` | Sends no CSP header on the node's hostnames, matching the behaviour of a disabled Frontend policy. |
 
 {: .warning }
-`NoHeader` is an explicit fail-open setting: disabling a domain policy removes all CSP protection from that domain. Keep the default unless you specifically require an unconstrained domain.
+`NoHeader` is an explicit fail-open setting: disabling a domain policy removes all CSP protection from every hostname of its node. Keep the default unless you specifically require an unconstrained site.
 
 ```json
 {

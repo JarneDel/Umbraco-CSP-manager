@@ -16,7 +16,7 @@ public sealed class CspApiDefinition : IValidatableObject
 	/// Gets or sets the unique identifier for this CSP definition.
 	/// Either <see cref="Constants.DefaultFrontEndId"/> or <see cref="Constants.DefaultBackofficeId"/>
 	/// for the global policies, or the id the server gave a domain policy when it was created.
-	/// Post <see cref="Guid.Empty"/> with a <see cref="DomainKey"/> to create a domain policy.
+	/// Post <see cref="Guid.Empty"/> with a <see cref="ContentKey"/> to create a domain policy.
 	/// </summary>
 	public Guid Id { get; set; }
 
@@ -38,23 +38,23 @@ public sealed class CspApiDefinition : IValidatableObject
 	public bool IsBackOffice { get; set; }
 
 	/// <summary>
-	/// Gets or sets the key of the Umbraco domain this policy applies to (see
-	/// <see cref="CspDomainKey.FromDomainName"/>), or <c>null</c> for the two
-	/// global policies. It can't be changed once a domain policy exists.
+	/// Gets or sets the key of the content node this domain policy belongs to (a node with a hostname
+	/// in Culture and Hostnames), or <c>null</c> for the two global policies. It can't be changed once
+	/// a domain policy exists.
 	/// </summary>
-	public Guid? DomainKey { get; set; }
+	public Guid? ContentKey { get; set; }
 
 	/// <summary>
-	/// Gets or sets the name of the domain, for display only (ignored on save). <c>null</c> for the
-	/// global policies, and for a domain policy whose domain has been removed.
+	/// Gets or sets the name of the content node, for display only (ignored on save). <c>null</c> for
+	/// the global policies, and for a domain policy whose node has been deleted.
 	/// </summary>
-	public string? DomainName { get; set; }
+	public string? ContentName { get; set; }
 
 	/// <summary>
-	/// Gets or sets the key of the content node the domain is assigned to, for display only
-	/// (ignored on save). <c>null</c> for the global policies.
+	/// Gets or sets the hostnames the policy applies to, for display only (ignored on save). Empty for
+	/// the global policies, and for an orphaned domain policy whose node has no hostname any more.
 	/// </summary>
-	public Guid? RootContentKey { get; set; }
+	public List<CspApiDomainName> Domains { get; set; } = [];
 
 	/// <summary>
 	/// Gets or sets what happens when this domain policy is disabled (the configured
@@ -94,7 +94,7 @@ public sealed class CspApiDefinition : IValidatableObject
 		var isGlobalId = Constants.DefaultFrontEndId.Equals(Id) || Constants.DefaultBackofficeId.Equals(Id);
 
 		// The service enforces the same rules (and checks the stored row); this just fails fast.
-		if (DomainKey is null)
+		if (ContentKey is null)
 		{
 			// Without a domain, only the two global policies exist.
 			if (!isGlobalId)
@@ -106,7 +106,7 @@ public sealed class CspApiDefinition : IValidatableObject
 		{
 			if (isGlobalId)
 			{
-				yield return new ValidationResult("The global frontend and backoffice policies cannot be assigned to a domain", [nameof(DomainKey)]);
+				yield return new ValidationResult("The global frontend and backoffice policies cannot be assigned to a content node", [nameof(ContentKey)]);
 			}
 
 			if (IsBackOffice)
@@ -128,16 +128,16 @@ public sealed class CspApiDefinition : IValidatableObject
 
 	internal static CspApiDefinition FromCspDefinition(
 		CspDefinition definition,
-		string? domainName = null,
-		DisabledDomainPolicyBehavior? disabledDomainPolicyBehavior = null,
-		Guid? rootContentKey = null)
+		string? contentName = null,
+		IEnumerable<CspApiDomainName>? domains = null,
+		DisabledDomainPolicyBehavior? disabledDomainPolicyBehavior = null)
 		=> new()
 		{
 			Id = definition.Id,
-			DomainKey = definition.DomainKey,
-			DomainName = definition.DomainKey is null ? null : domainName,
-			RootContentKey = definition.DomainKey is null ? null : rootContentKey,
-			DisabledDomainPolicyBehavior = definition.DomainKey is null ? null : disabledDomainPolicyBehavior,
+			ContentKey = definition.ContentKey,
+			ContentName = definition.ContentKey is null ? null : contentName,
+			Domains = definition.ContentKey is null || domains is null ? [] : [.. domains],
+			DisabledDomainPolicyBehavior = definition.ContentKey is null ? null : disabledDomainPolicyBehavior,
 			Enabled = definition.Enabled,
 			UpgradeInsecureRequests = definition.UpgradeInsecureRequests,
 			ReportingDirective = definition.ReportingDirective,
@@ -157,7 +157,7 @@ public sealed class CspApiDefinition : IValidatableObject
 			IsBackOffice = IsBackOffice,
 			ReportingDirective = ReportingDirective,
 			ReportUri = ReportUri,
-			DomainKey = DomainKey,
+			ContentKey = ContentKey,
 			Sources = Sources.ConvertAll(CspApiDefinitionSource.ToCspDefinitionSource)
 		};
 }

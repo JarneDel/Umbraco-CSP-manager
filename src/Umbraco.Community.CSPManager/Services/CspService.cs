@@ -1,4 +1,4 @@
-﻿using System.Data.Common;
+using System.Data.Common;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -31,22 +31,23 @@ internal sealed class CspService : ICspService
 	private readonly IScopeProvider _scopeProvider;
 	private readonly IAppPolicyCache _runtimeCache;
 	private readonly ILogger<CspService> _logger;
-	private readonly IDomainService _domainService;
+	private readonly CspDomainNodeLookup _domainNodes;
 
-	private const string DomainAlreadyHasPolicyMessage = "A policy already exists for this domain.";
+	private const string DomainAlreadyHasPolicyMessage = "A policy already exists for this content node.";
 
 	public CspService(
 		IEventAggregator eventAggregator,
 		IScopeProvider scopeProvider,
 		AppCaches caches,
 		ILogger<CspService> logger,
-		IDomainService domainService)
+		IDomainService domainService,
+		IEntityService entityService)
 	{
 		_eventAggregator = eventAggregator;
 		_scopeProvider = scopeProvider;
 		_runtimeCache = caches.RuntimeCache;
 		_logger = logger;
-		_domainService = domainService;
+		_domainNodes = new CspDomainNodeLookup(domainService, entityService);
 	}
 
 	public Task<CspDefinition?> GetCachedCspDefinitionAsync(bool isBackOfficeRequest, CancellationToken cancellationToken)
@@ -62,14 +63,14 @@ internal sealed class CspService : ICspService
 			cancellationToken);
 	}
 
-	public Task<CspDefinition?> GetCachedCspDefinitionForDomainAsync(Guid domainKey, CancellationToken cancellationToken)
+	public Task<CspDefinition?> GetCachedCspDefinitionForDomainAsync(Guid contentKey, CancellationToken cancellationToken)
 		// A domain without a policy caches a completed Task whose result is null. That Task is
 		// the negative-cache entry: frontend requests on domains without an override don't query
 		// the database every time. Creating a policy for the domain clears it like any save.
 		=> GetCachedAsync(
-			Constants.DomainCacheKey(domainKey),
-			DomainContext(domainKey),
-			() => GetCspDefinitionForDomainAsync(domainKey, CancellationToken.None),
+			Constants.DomainCacheKey(contentKey),
+			DomainContext(contentKey),
+			() => GetCspDefinitionForDomainAsync(contentKey, CancellationToken.None),
 			cancellationToken);
 
 	private async Task<CspDefinition?> GetCachedAsync(
@@ -132,7 +133,7 @@ internal sealed class CspService : ICspService
 		ReportingDirective = definition.ReportingDirective,
 		ReportUri = definition.ReportUri,
 		UpgradeInsecureRequests = definition.UpgradeInsecureRequests,
-		DomainKey = definition.DomainKey,
+		ContentKey = definition.ContentKey,
 		Sources =
 		[
 			.. definition.Sources.Select(s => new CspDefinitionSource
@@ -157,15 +158,15 @@ internal sealed class CspService : ICspService
 		return definition;
 	}
 
-	public async Task<CspDefinition?> GetCspDefinitionForDomainAsync(Guid domainKey, CancellationToken cancellationToken)
+	public async Task<CspDefinition?> GetCspDefinitionForDomainAsync(Guid contentKey, CancellationToken cancellationToken)
 	{
-		Log.LoadingCspDefinitionFromDatabase(_logger, DomainContext(domainKey));
+		Log.LoadingCspDefinitionFromDatabase(_logger, DomainContext(contentKey));
 
 		using var scope = _scopeProvider.CreateScope();
 		var sql = scope.SqlContext.Sql()
 			.SelectAll()
 			.From<CspDefinition>()
-			.Where<CspDefinition>(x => x.DomainKey == domainKey);
+			.Where<CspDefinition>(x => x.ContentKey == contentKey);
 		var definition = await LoadWithSourcesAsync(scope, sql, cancellationToken);
 
 		scope.Complete();
@@ -179,7 +180,7 @@ internal sealed class CspService : ICspService
 		var definitionSql = scope.SqlContext.Sql()
 			.SelectAll()
 			.From<CspDefinition>()
-			.WhereNotNull<CspDefinition>(x => x.DomainKey);
+			.WhereNotNull<CspDefinition>(x => x.ContentKey);
 		var definitions = await scope.Database.FetchAsync<CspDefinition>(definitionSql, cancellationToken);
 
 		if (definitions.Count > 0)
@@ -202,7 +203,7 @@ internal sealed class CspService : ICspService
 		return definitions;
 	}
 
-	public async Task<CspDefinition> CreateCspDefinitionForDomainAsync(Guid domainKey, CancellationToken cancellationToken)
+	public async Task<CspDefinition> CreateCspDefinitionForDomainAsync(Guid contentKey, CancellationToken cancellationToken)
 	{
 		var frontend = await GetCspDefinitionAsync(isBackOfficeRequest: false, cancellationToken);
 		var id = Guid.NewGuid();
@@ -210,9 +211,11 @@ internal sealed class CspService : ICspService
 		var definition = new CspDefinition
 		{
 			Id = id,
-			DomainKey = domainKey,
+			ContentKey = contentKey,
 			IsBackOffice = false,
-			Enabled = frontend.Enabled,
+			// Always on: creating a domain policy means it should apply. Copying the Frontend policy's
+			// switch would silently create a policy that does nothing whenever Frontend is off.
+			Enabled = true,
 			ReportOnly = frontend.ReportOnly,
 			ReportingDirective = frontend.ReportingDirective,
 			ReportUri = frontend.ReportUri,
@@ -228,7 +231,7 @@ internal sealed class CspService : ICspService
 			]
 		};
 
-		// The domain-exists and one-policy-per-domain checks live in the save path.
+		// The node-has-a-hostname and one-policy-per-node checks live in the save path.
 		return await SaveCspDefinitionAsync(definition, cancellationToken);
 	}
 
@@ -275,95 +278,6 @@ internal sealed class CspService : ICspService
 		await _eventAggregator.PublishAsync(new CspDeletedNotification(definition), cancellationToken);
 
 		Log.CspDefinitionDeleted(_logger, definition.Id, GetContextName(definition));
-	}
-
-	public async Task<CspDefinition> MoveDomainPolicyAsync(Guid id, Guid domainKey, CancellationToken cancellationToken)
-	{
-		if (IsGlobalId(id))
-		{
-			throw new CspDefinitionValidationException(nameof(CspDefinition.Id), "The global frontend and backoffice policies cannot be moved to a domain.");
-		}
-
-		// Before the write lock, like the save: IDomainService takes Umbraco's own locks.
-		var domainKeys = await GetDomainKeysAsync();
-		if (!domainKeys.Contains(domainKey))
-		{
-			throw new CspDefinitionValidationException(nameof(CspDefinition.DomainKey), "The domain does not exist, or is a wildcard (culture-only) domain.");
-		}
-
-		CspDefinition orphan;
-		CspDefinition moved;
-
-		try
-		{
-			using var scope = _scopeProvider.CreateScope();
-
-			// Before any read, like every write: see SaveCspDefinitionAsync.
-			scope.EagerWriteLock(Constants.Locks.Definitions);
-
-			var sql = scope.SqlContext.Sql()
-				.SelectAll()
-				.From<CspDefinition>()
-				.Where<CspDefinition>(x => x.Id == id);
-			orphan = await LoadWithSourcesAsync(scope, sql, cancellationToken)
-				?? throw new CspDefinitionValidationException(nameof(CspDefinition.Id), "There is no domain policy with this id.");
-
-			// Only orphans: moving a policy away from a live domain would silently switch that domain
-			// to the Frontend policy.
-			if (orphan.DomainKey is not { } orphanDomainKey || domainKeys.Contains(orphanDomainKey))
-			{
-				throw new CspDefinitionValidationException(nameof(CspDefinition.Id), "Only a domain policy whose domain has been renamed or removed can be moved.");
-			}
-
-			var duplicateSql = scope.SqlContext.Sql()
-				.SelectCount()
-				.From<CspDefinition>()
-				.Where<CspDefinition>(x => x.DomainKey == domainKey);
-			if (await scope.Database.ExecuteScalarAsync<int>(duplicateSql, cancellationToken) > 0)
-			{
-				throw new CspDefinitionValidationException(nameof(CspDefinition.DomainKey), DomainAlreadyHasPolicyMessage);
-			}
-
-			// A new id rather than re-keying the row: every environment then sees a plain delete and
-			// create, so uSync can't confuse the moved policy with the orphan it replaces (same id,
-			// different alias).
-			moved = CloneDefinition(orphan);
-			moved.Id = Guid.NewGuid();
-			moved.DomainKey = domainKey;
-			moved.Sources = [.. moved.Sources.Where(s => !string.IsNullOrWhiteSpace(s.Source))];
-
-			// Rows stored before validation existed may not pass it; they must be fixed (and saved)
-			// before they can be moved, like any other write.
-			EnsureValidContent(moved);
-
-			await SaveDefinitionAsync(scope, moved, cancellationToken);
-			await scope.Database.DeleteManyAsync<CspDefinitionSource>()
-				.Where(s => s.DefinitionId == id)
-				.Execute(cancellationToken);
-			await scope.Database.DeleteManyAsync<CspDefinition>()
-				.Where(d => d.Id == id)
-				.Execute(cancellationToken);
-
-			scope.Complete();
-		}
-		catch (Exception ex) when (IsDomainKeyUniqueViolation(ex))
-		{
-			throw new CspDefinitionValidationException(nameof(CspDefinition.DomainKey), DomainAlreadyHasPolicyMessage);
-		}
-		catch (CspDefinitionValidationException ex)
-		{
-			Log.CspDefinitionSaveRejected(_logger, id, ex.Message);
-			throw;
-		}
-
-		// Post-commit, as for saves and deletes. The delete clears the orphan's cache entry, which
-		// would otherwise come back to life if its old domain is ever re-added.
-		await _eventAggregator.PublishAsync(new CspDeletedNotification(orphan), cancellationToken);
-		await _eventAggregator.PublishAsync(new CspSavedNotification(moved), cancellationToken);
-
-		Log.CspDefinitionMoved(_logger, orphan.Id, GetContextName(moved), moved.Id);
-
-		return moved;
 	}
 
 	public async Task<CspDefinition> GetCspDefinitionAsync(bool isBackOfficeRequest, CancellationToken cancellationToken)
@@ -421,7 +335,7 @@ internal sealed class CspService : ICspService
 
 			// Looked up before the write lock: IDomainService opens its own scope (and takes Umbraco's
 			// Domains read lock), and nothing should be waited on while holding our lock.
-			var domainExists = isDomainPolicy && await DomainExistsAsync(definition.DomainKey!.Value);
+			var nodeHasHostname = isDomainPolicy && await _domainNodes.HasHostnameAsync(definition.ContentKey!.Value);
 
 			try
 			{
@@ -436,18 +350,18 @@ internal sealed class CspService : ICspService
 
 				if (isDomainPolicy)
 				{
-					await EnsureValidDomainPolicyAsync(scope, definition, domainExists, cancellationToken);
+					await EnsureValidDomainPolicyAsync(scope, definition, nodeHasHostname, cancellationToken);
 				}
 
 				definition = await SaveDefinitionAsync(scope, definition, cancellationToken);
 
 				scope.Complete();
 			}
-			catch (Exception ex) when (isDomainPolicy && IsDomainKeyUniqueViolation(ex))
+			catch (Exception ex) when (isDomainPolicy && IsContentKeyUniqueViolation(ex))
 			{
 				// The filtered unique index is the last line of defence against a second policy for a
 				// domain (e.g. a writer that bypasses this service). Report it like the service check.
-				throw new CspDefinitionValidationException(nameof(CspDefinition.DomainKey), DomainAlreadyHasPolicyMessage);
+				throw new CspDefinitionValidationException(nameof(CspDefinition.ContentKey), DomainAlreadyHasPolicyMessage);
 			}
 
 			// Publish after the scope disposes, i.e. after commit - otherwise a request in that
@@ -487,15 +401,15 @@ internal sealed class CspService : ICspService
 
 	// The service, not the caller, decides what a definition is: anything that can reach the save
 	// (the management API, uSync, custom code) must not be able to turn a global policy into a
-	// domain policy, move a domain policy to another domain, or create a second global policy.
+	// domain policy, change the content node of a domain policy, or create a second global policy.
 	// These rules need no database; returns whether the definition is a domain policy.
 	private static bool EnsureValidIdentityShape(CspDefinition definition)
 	{
 		if (IsGlobalId(definition.Id))
 		{
-			if (definition.DomainKey is not null)
+			if (definition.ContentKey is not null)
 			{
-				throw new CspDefinitionValidationException(nameof(CspDefinition.DomainKey), "The global frontend and backoffice policies cannot be assigned to a domain.");
+				throw new CspDefinitionValidationException(nameof(CspDefinition.ContentKey), "The global frontend and backoffice policies cannot be assigned to a content node.");
 			}
 
 			// The Id decides which global policy this is, not the posted flag - otherwise the
@@ -504,9 +418,9 @@ internal sealed class CspService : ICspService
 			return false;
 		}
 
-		if (definition.DomainKey is not { } domainKey || domainKey == Guid.Empty)
+		if (definition.ContentKey is not { } contentKey || contentKey == Guid.Empty)
 		{
-			throw new CspDefinitionValidationException(nameof(CspDefinition.Id), "Only the global frontend and backoffice policies can be saved without a domain.");
+			throw new CspDefinitionValidationException(nameof(CspDefinition.Id), "Only the global frontend and backoffice policies can be saved without a content node.");
 		}
 
 		// Domain policies replace the frontend policy; the backoffice never uses them.
@@ -522,20 +436,13 @@ internal sealed class CspService : ICspService
 		return true;
 	}
 
-	private async Task<bool> DomainExistsAsync(Guid domainKey)
-		=> (await GetDomainKeysAsync()).Contains(domainKey);
-
-	// The policy keys of every non-wildcard domain.
-	private async Task<HashSet<Guid>> GetDomainKeysAsync()
-	{
-		var domains = await _domainService.GetAllAsync(includeWildcards: false);
-		return [.. domains.Where(d => !string.IsNullOrWhiteSpace(d.DomainName)).Select(d => CspDomainKey.FromDomainName(d.DomainName))];
-	}
+	public Task<bool> ContentNodeHasHostnameAsync(Guid contentKey, CancellationToken cancellationToken)
+		=> _domainNodes.HasHostnameAsync(contentKey);
 
 	// Inside the locked save scope, so the checks and the write see the same data.
-	private static async Task EnsureValidDomainPolicyAsync(IScope scope, CspDefinition definition, bool domainExists, CancellationToken cancellationToken)
+	private static async Task EnsureValidDomainPolicyAsync(IScope scope, CspDefinition definition, bool nodeHasHostname, CancellationToken cancellationToken)
 	{
-		var domainKey = definition.DomainKey!.Value;
+		var contentKey = definition.ContentKey!.Value;
 
 		var existingSql = scope.SqlContext.Sql()
 			.SelectAll()
@@ -545,40 +452,40 @@ internal sealed class CspService : ICspService
 
 		if (existing is not null)
 		{
-			if (existing.DomainKey != domainKey)
+			if (existing.ContentKey != contentKey)
 			{
-				throw new CspDefinitionValidationException(nameof(CspDefinition.DomainKey), "The domain of an existing domain policy cannot be changed.");
+				throw new CspDefinitionValidationException(nameof(CspDefinition.ContentKey), "The content node of an existing domain policy cannot be changed.");
 			}
 
 			return;
 		}
 
-		// Creating: one policy per domain (also backed by a unique index), for a domain that exists.
+		// Creating: one policy per node (also backed by a unique index), for a node with a hostname.
 		var duplicateSql = scope.SqlContext.Sql()
 			.SelectCount()
 			.From<CspDefinition>()
-			.Where<CspDefinition>(x => x.DomainKey == domainKey);
+			.Where<CspDefinition>(x => x.ContentKey == contentKey);
 		if (await scope.Database.ExecuteScalarAsync<int>(duplicateSql, cancellationToken) > 0)
 		{
-			throw new CspDefinitionValidationException(nameof(CspDefinition.DomainKey), DomainAlreadyHasPolicyMessage);
+			throw new CspDefinitionValidationException(nameof(CspDefinition.ContentKey), DomainAlreadyHasPolicyMessage);
 		}
 
-		if (!domainExists)
+		if (!nodeHasHostname)
 		{
-			throw new CspDefinitionValidationException(nameof(CspDefinition.DomainKey), "The domain does not exist, or is a wildcard (culture-only) domain.");
+			throw new CspDefinitionValidationException(nameof(CspDefinition.ContentKey), "The content node does not exist, is in the recycle bin, or has no hostname assigned in Culture and Hostnames (culture-only domains don't count).");
 		}
 	}
 
 	// A violation of DomainPolicyMigration's filtered unique index. Matched on the message because
 	// the provider exception types (SqliteException, SqlException) aren't referenced here: SQL Server
 	// names the index, SQLite names the column.
-	internal static bool IsDomainKeyUniqueViolation(Exception exception)
+	internal static bool IsContentKeyUniqueViolation(Exception exception)
 	{
 		for (var current = exception; current is not null; current = current.InnerException)
 		{
 			if (current is DbException
-				&& (current.Message.Contains(DomainPolicyMigration.DomainKeyIndexName, StringComparison.OrdinalIgnoreCase)
-					|| current.Message.Contains($"UNIQUE constraint failed: {nameof(CspDefinition)}.{nameof(CspDefinition.DomainKey)}", StringComparison.OrdinalIgnoreCase)))
+				&& (current.Message.Contains(DomainPolicyMigration.ContentKeyIndexName, StringComparison.OrdinalIgnoreCase)
+					|| current.Message.Contains($"UNIQUE constraint failed: {nameof(CspDefinition)}.{nameof(CspDefinition.ContentKey)}", StringComparison.OrdinalIgnoreCase)))
 			{
 				return true;
 			}
@@ -614,14 +521,14 @@ internal sealed class CspService : ICspService
 
 	// Two queries instead of a single join because FetchOneToMany has no async variant.
 	// The extra round-trip is acceptable here since results are cached and cache misses are rare.
-	// DomainKey IS NULL keeps domain policies (IsBackOffice = false too) out of the global lookup.
+	// ContentKey IS NULL keeps domain policies (IsBackOffice = false too) out of the global lookup.
 	private static Task<CspDefinition?> GetDefinitionAsync(IScope scope, bool isBackOffice, CancellationToken cancellationToken)
 	{
 		var definitionSql = scope.SqlContext.Sql()
 			.SelectAll()
 			.From<CspDefinition>()
 			.Where<CspDefinition>(x => x.IsBackOffice == isBackOffice)
-			.WhereNull<CspDefinition>(x => x.DomainKey);
+			.WhereNull<CspDefinition>(x => x.ContentKey);
 
 		return LoadWithSourcesAsync(scope, definitionSql, cancellationToken);
 	}
@@ -647,11 +554,11 @@ internal sealed class CspService : ICspService
 
 	private static bool IsGlobalId(Guid id) => id == Constants.DefaultFrontEndId || id == Constants.DefaultBackofficeId;
 
-	private static string DomainContext(Guid domainKey) => $"Domain {domainKey:D}";
+	private static string DomainContext(Guid contentKey) => $"Domain policy of node {contentKey:D}";
 
 	private static string GetContextName(CspDefinition definition)
-		=> definition.DomainKey is { } domainKey
-			? DomainContext(domainKey)
+		=> definition.ContentKey is { } contentKey
+			? DomainContext(contentKey)
 			: definition.IsBackOffice ? "BackOffice" : "Frontend";
 
 	private static string GenerateCspNonceValue()

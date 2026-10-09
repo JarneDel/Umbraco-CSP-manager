@@ -40,20 +40,20 @@ public class CspApiDefinitionValidationTests
 	}
 
 	[Test]
-	public void Validate_GlobalIdWithDomainKey_ReturnsError()
+	public void Validate_GlobalIdWithContentKey_ReturnsError()
 	{
-		var definition = new CspApiDefinition { Id = Constants.DefaultFrontEndId, DomainKey = Guid.NewGuid() };
+		var definition = new CspApiDefinition { Id = Constants.DefaultFrontEndId, ContentKey = Guid.NewGuid() };
 
 		var results = ValidateModel(definition);
 
 		Assert.That(results, Has.Count.EqualTo(1));
-		Assert.That(results.FirstOrDefault()?.MemberNames, Contains.Item(nameof(CspApiDefinition.DomainKey)));
+		Assert.That(results.FirstOrDefault()?.MemberNames, Contains.Item(nameof(CspApiDefinition.ContentKey)));
 	}
 
 	[Test]
 	public void Validate_DomainPolicyFlaggedAsBackOffice_ReturnsError()
 	{
-		var definition = new CspApiDefinition { Id = Guid.Empty, DomainKey = Guid.NewGuid(), IsBackOffice = true };
+		var definition = new CspApiDefinition { Id = Guid.Empty, ContentKey = Guid.NewGuid(), IsBackOffice = true };
 
 		var results = ValidateModel(definition);
 

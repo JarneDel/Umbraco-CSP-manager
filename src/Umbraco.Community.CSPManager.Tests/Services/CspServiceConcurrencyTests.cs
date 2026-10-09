@@ -21,7 +21,6 @@ public class CspServiceConcurrencyTests : UmbracoIntegrationTestWithContent
 	private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
 	private ICspService _cspService;
-	private IDomain _domain;
 
 	protected override void CustomTestSetup(IUmbracoBuilder builder)
 	{
@@ -43,19 +42,19 @@ public class CspServiceConcurrencyTests : UmbracoIntegrationTestWithContent
 		await CspTestMigrationHelper.RunMigrationsAsync(GetRequiredService<IMigrationPlanExecutor>(), ScopeProvider, GetRequiredService<IKeyValueService>());
 		_cspService = GetRequiredService<ICspService>();
 
-		var domains = await CspTestDomainHelper.AssignDomainsAsync(GetRequiredService<IDomainService>(), Textpage.Key, ["race.example.com"]);
-		_domain = domains.Single();
+		// Domain policies belong to Textpage, which needs a hostname to qualify.
+		await CspTestDomainHelper.AssignDomainsAsync(GetRequiredService<IDomainService>(), Textpage.Key, ["race.example.com"]);
 	}
 
 	[Test]
 	public async Task ConcurrentCreatesForTheSameDomain_AllComplete_AndExactlyOnePolicyIsCreated()
 	{
-		var domainKey = _domain.PolicyKey();
+		var contentKey = Textpage.Key;
 
 		// Half create through the "copy the frontend policy" path, half post a new policy directly.
 		var outcomes = await RunConcurrentlyAsync(i => i % 2 == 0
-			? _cspService.CreateCspDefinitionForDomainAsync(domainKey, CancellationToken.None)
-			: _cspService.SaveCspDefinitionAsync(NewDomainPolicy(domainKey, $"writer{i}.example.com"), CancellationToken.None));
+			? _cspService.CreateCspDefinitionForDomainAsync(contentKey, CancellationToken.None)
+			: _cspService.SaveCspDefinitionAsync(NewDomainPolicy(contentKey, $"writer{i}.example.com"), CancellationToken.None));
 
 		Assert.Multiple(async () =>
 		{
@@ -95,7 +94,7 @@ public class CspServiceConcurrencyTests : UmbracoIntegrationTestWithContent
 	[Test]
 	public async Task ConcurrentSavesAndDeletesOfADomainPolicy_AllComplete()
 	{
-		var policy = await _cspService.CreateCspDefinitionForDomainAsync(_domain.PolicyKey(), CancellationToken.None);
+		var policy = await _cspService.CreateCspDefinitionForDomainAsync(Textpage.Key, CancellationToken.None);
 
 		var outcomes = await RunConcurrentlyAsync(async i =>
 		{
@@ -105,7 +104,7 @@ public class CspServiceConcurrencyTests : UmbracoIntegrationTestWithContent
 				return;
 			}
 
-			var update = NewDomainPolicy(_domain.PolicyKey(), $"writer{i}.example.com");
+			var update = NewDomainPolicy(Textpage.Key, $"writer{i}.example.com");
 			update.Id = policy.Id;
 			await _cspService.SaveCspDefinitionAsync(update, CancellationToken.None);
 		});
@@ -130,38 +129,38 @@ public class CspServiceConcurrencyTests : UmbracoIntegrationTestWithContent
 			scope.Database.Execute(
 				$"""
 				CREATE TRIGGER csp_test_racer BEFORE INSERT ON {nameof(CspDefinition)}
-				WHEN NEW.{nameof(CspDefinition.Id)} <> '{racer}' AND NEW.{nameof(CspDefinition.DomainKey)} IS NOT NULL
+				WHEN NEW.{nameof(CspDefinition.Id)} <> '{racer}' AND NEW.{nameof(CspDefinition.ContentKey)} IS NOT NULL
 				BEGIN
-					INSERT INTO {nameof(CspDefinition)} ({nameof(CspDefinition.Id)}, {nameof(CspDefinition.Enabled)}, {nameof(CspDefinition.ReportOnly)}, {nameof(CspDefinition.IsBackOffice)}, {nameof(CspDefinition.UpgradeInsecureRequests)}, {nameof(CspDefinition.DomainKey)})
-					VALUES ('{racer}', 0, 0, 0, 0, NEW.{nameof(CspDefinition.DomainKey)});
+					INSERT INTO {nameof(CspDefinition)} ({nameof(CspDefinition.Id)}, {nameof(CspDefinition.Enabled)}, {nameof(CspDefinition.ReportOnly)}, {nameof(CspDefinition.IsBackOffice)}, {nameof(CspDefinition.UpgradeInsecureRequests)}, {nameof(CspDefinition.ContentKey)})
+					VALUES ('{racer}', 0, 0, 0, 0, NEW.{nameof(CspDefinition.ContentKey)});
 				END
 				""");
 			scope.Complete();
 		}
 
 		var ex = Assert.ThrowsAsync<CspDefinitionValidationException>(() => _cspService.SaveCspDefinitionAsync(
-			new CspDefinition { DomainKey = _domain.PolicyKey() }, CancellationToken.None));
+			new CspDefinition { ContentKey = Textpage.Key }, CancellationToken.None));
 
 		// The failed save rolled back, trigger insert included.
 		var policies = await _cspService.GetAllDomainPoliciesAsync(CancellationToken.None);
 		Assert.Multiple(() =>
 		{
-			Assert.That(ex!.MemberName, Is.EqualTo(nameof(CspDefinition.DomainKey)));
-			Assert.That(ex.Message, Is.EqualTo("A policy already exists for this domain."));
+			Assert.That(ex!.MemberName, Is.EqualTo(nameof(CspDefinition.ContentKey)));
+			Assert.That(ex.Message, Is.EqualTo("A policy already exists for this content node."));
 			Assert.That(policies, Is.Empty);
 		});
 	}
 
 	[Test]
-	public void IsDomainKeyUniqueViolation_RecognisesTheSqlServerErrorByIndexName()
+	public void IsContentKeyUniqueViolation_RecognisesTheSqlServerErrorByIndexName()
 	{
-		var sqlServerLike = new FakeDbException("Cannot insert duplicate key row in object 'dbo.CspDefinition' with unique index 'IX_CspDefinition_DomainKey'. The duplicate key value is (…).");
+		var sqlServerLike = new FakeDbException("Cannot insert duplicate key row in object 'dbo.CspDefinition' with unique index 'IX_CspDefinition_ContentKey'. The duplicate key value is (…).");
 
 		Assert.Multiple(() =>
 		{
-			Assert.That(CspService.IsDomainKeyUniqueViolation(new InvalidOperationException("wrapped", sqlServerLike)), Is.True);
-			Assert.That(CspService.IsDomainKeyUniqueViolation(new FakeDbException("UNIQUE constraint failed: CspDefinitionSource.DefinitionId, CspDefinitionSource.Source")), Is.False);
-			Assert.That(CspService.IsDomainKeyUniqueViolation(new InvalidOperationException("IX_CspDefinition_DomainKey")), Is.False, "only database errors count");
+			Assert.That(CspService.IsContentKeyUniqueViolation(new InvalidOperationException("wrapped", sqlServerLike)), Is.True);
+			Assert.That(CspService.IsContentKeyUniqueViolation(new FakeDbException("UNIQUE constraint failed: CspDefinitionSource.DefinitionId, CspDefinitionSource.Source")), Is.False);
+			Assert.That(CspService.IsContentKeyUniqueViolation(new InvalidOperationException("IX_CspDefinition_ContentKey")), Is.False, "only database errors count");
 		});
 	}
 
@@ -200,10 +199,10 @@ public class CspServiceConcurrencyTests : UmbracoIntegrationTestWithContent
 		}
 	}
 
-	private static CspDefinition NewDomainPolicy(Guid domainKey, string source) => new()
+	private static CspDefinition NewDomainPolicy(Guid contentKey, string source) => new()
 	{
 		Id = Guid.Empty,
-		DomainKey = domainKey,
+		ContentKey = contentKey,
 		Enabled = true,
 		Sources = [new CspDefinitionSource { Source = source, Directives = [Constants.Directives.DefaultSource] }]
 	};

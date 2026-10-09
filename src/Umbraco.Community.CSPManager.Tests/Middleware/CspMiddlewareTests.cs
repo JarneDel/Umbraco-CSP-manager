@@ -12,6 +12,7 @@ using Umbraco.Cms.Core;
 using Umbraco.Cms.Core.Configuration;
 using Umbraco.Cms.Core.Configuration.Models;
 using Umbraco.Cms.Core.Events;
+using Umbraco.Cms.Core.Models;
 using Umbraco.Cms.Core.Notifications;
 using Umbraco.Cms.Core.Routing;
 using Umbraco.Cms.Core.Services;
@@ -36,6 +37,8 @@ public class CspMiddlewareTests
 
 	private IUmbracoContextAccessor _umbracoContextAccessor;
 
+	private IIdKeyMap _idKeyMap;
+
 	private static Dictionary<string, string> InMemoryConfiguration => [];
 
 	private TestHelper TestHelper { get; } = new();
@@ -50,6 +53,10 @@ public class CspMiddlewareTests
 		_cspService = Mock.Of<ICspService>();
 		_eventAggregator = Mock.Of<IEventAggregator>();
 		_umbracoContextAccessor = Mock.Of<IUmbracoContextAccessor>();
+		_idKeyMap = Mock.Of<IIdKeyMap>();
+		Mock.Get(_idKeyMap)
+			.Setup(x => x.GetKeyForId(RoutedContentId, UmbracoObjectTypes.Document))
+			.Returns(Attempt.Succeed(RoutedContentKey));
 		_host = BuildTestHost();
 	}
 
@@ -70,6 +77,7 @@ public class CspMiddlewareTests
 						services.AddSingleton(_ => _cspService);
 						services.AddSingleton(_ => _eventAggregator);
 						services.AddSingleton(_ => _umbracoContextAccessor);
+						services.AddSingleton(_ => _idKeyMap);
 						services.AddSingleton(_ => runtimeState);
 						services.AddSingleton(_ => runtime);
 						services.AddSingleton(_ => TestHelper.GetHostingEnvironment());
@@ -586,7 +594,10 @@ public class CspMiddlewareTests
 
 	private const string RoutedDomainName = "a.example.com";
 
-	private static readonly Guid RoutedDomainKey = CspDomainKey.FromDomainName(RoutedDomainName);
+	// The content node the routed domain is assigned to: domain policies are keyed on it.
+	private const int RoutedContentId = 1000;
+
+	private static readonly Guid RoutedContentKey = new("5b0c2c1e-8d1f-4b5e-9a37-0f6f3c2d4e81");
 
 	private static CspDefinition GlobalFrontend() => new()
 	{
@@ -598,16 +609,16 @@ public class CspMiddlewareTests
 	private static CspDefinition DomainPolicy(bool enabled) => new()
 	{
 		Id = Guid.NewGuid(),
-		DomainKey = RoutedDomainKey,
+		ContentKey = RoutedContentKey,
 		Enabled = enabled,
 		Sources = [new CspDefinitionSource { Source = "domain.example.com", Directives = [Constants.Directives.DefaultSource] }]
 	};
 
 	// What Umbraco's routing leaves behind for a request matched to a Culture & Hostnames domain.
 	// (Routing only ever sets a non-wildcard domain here; DomainAndUri can't even be built for one.)
-	private void SetRoutedDomain(string domainName = RoutedDomainName)
+	private void SetRoutedDomain(string domainName = RoutedDomainName, int contentId = RoutedContentId)
 	{
-		var domain = new DomainAndUri(new Domain(1234, domainName, 1000, "en-US", false, 0), new Uri("https://a.example.com/"));
+		var domain = new DomainAndUri(new Domain(1234, domainName, contentId, "en-US", false, 0), new Uri("https://a.example.com/"));
 		var publishedRequest = Mock.Of<IPublishedRequest>(r => r.Domain == domain);
 		var umbracoContext = Mock.Of<IUmbracoContext>(c => c.PublishedRequest == publishedRequest);
 		Mock.Get(_umbracoContextAccessor)
@@ -624,7 +635,7 @@ public class CspMiddlewareTests
 			.Setup(x => x.GetCachedCspDefinitionAsync(true, It.IsAny<CancellationToken>()))
 			.ReturnsAsync(backoffice);
 		Mock.Get(_cspService)
-			.Setup(x => x.GetCachedCspDefinitionForDomainAsync(RoutedDomainKey, It.IsAny<CancellationToken>()))
+			.Setup(x => x.GetCachedCspDefinitionForDomainAsync(RoutedContentKey, It.IsAny<CancellationToken>()))
 			.ReturnsAsync(domainPolicy);
 	}
 
@@ -651,8 +662,35 @@ public class CspMiddlewareTests
 		await _host.GetTestClient().GetAsync("/");
 
 		Mock.Get(_eventAggregator).Verify(x => x.PublishAsync(
-			It.Is<CspWritingNotification>(n => n.CspDefinition.Id == domainPolicy.Id && n.CspDefinition.DomainKey == RoutedDomainKey),
+			It.Is<CspWritingNotification>(n => n.CspDefinition.Id == domainPolicy.Id && n.CspDefinition.ContentKey == RoutedContentKey),
 			It.IsAny<CancellationToken>()), Times.Once);
+	}
+
+	// A multilingual site: one node with a hostname per culture. Every one of them gets the node's policy.
+	[Test]
+	[TestCase("a.example.com")]
+	[TestCase("a.example.com/fr")]
+	[TestCase("a.example.de")]
+	public async Task CspMiddleware_AnyHostnameOfTheNode_AppliesTheNodesPolicy(string domainName)
+	{
+		SetRoutedDomain(domainName);
+		SetPolicies(GlobalFrontend(), DomainPolicy(enabled: true));
+
+		var response = await _host.GetTestClient().GetAsync("/");
+
+		Assert.That(response.Headers.GetValues(Constants.HeaderName).Single(), Is.EqualTo("default-src domain.example.com"));
+	}
+
+	[Test]
+	public async Task CspMiddleware_RoutedDomainWhoseNodeCannotBeResolved_UsesTheGlobalPolicy()
+	{
+		SetRoutedDomain(contentId: 4242);
+		SetPolicies(GlobalFrontend(), DomainPolicy(enabled: true));
+
+		var response = await _host.GetTestClient().GetAsync("/");
+
+		Assert.That(response.Headers.GetValues(Constants.HeaderName).Single(), Is.EqualTo("default-src global.example.com"));
+		Mock.Get(_cspService).Verify(x => x.GetCachedCspDefinitionForDomainAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
 	}
 
 	[Test]
@@ -749,7 +787,7 @@ public class CspMiddlewareTests
 		SetRoutedDomain();
 		SetPolicies(GlobalFrontend(), domainPolicy: null);
 		Mock.Get(_cspService)
-			.Setup(x => x.GetCachedCspDefinitionForDomainAsync(RoutedDomainKey, It.IsAny<CancellationToken>()))
+			.Setup(x => x.GetCachedCspDefinitionForDomainAsync(RoutedContentKey, It.IsAny<CancellationToken>()))
 			.ThrowsAsync(new InvalidOperationException("database down"));
 
 		var response = await _host.GetTestClient().GetAsync("/");
@@ -764,7 +802,7 @@ public class CspMiddlewareTests
 		SetPolicies(GlobalFrontend(), DomainPolicy(enabled: true));
 		CancellationToken observedToken = new(canceled: true);
 		Mock.Get(_cspService)
-			.Setup(x => x.GetCachedCspDefinitionForDomainAsync(RoutedDomainKey, It.IsAny<CancellationToken>()))
+			.Setup(x => x.GetCachedCspDefinitionForDomainAsync(RoutedContentKey, It.IsAny<CancellationToken>()))
 			.Callback<Guid, CancellationToken>((_, token) => observedToken = token)
 			.ReturnsAsync(DomainPolicy(enabled: true));
 

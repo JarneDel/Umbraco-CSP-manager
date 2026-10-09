@@ -8,7 +8,7 @@ Provides uSync serialization and sync support for CSP Manager configurations.
 - **Handlers/CspDefinitionHandler.cs** - `SyncHandlerRoot<CspDefinition>`, exports on `CspSavedNotification`,
   writes a delete marker on `CspDeletedNotification`
 - **Trackers/CspDefinitionTracker.cs** - Tracks changes to CSP properties for diff detection
-- **CspItemNames.cs** - aliases/names: `backoffice`, `front-end`, `domain-{domainKey}`
+- **CspItemNames.cs** - aliases/names: `backoffice`, `front-end`, `domain-{contentKey}`
 - **Composer.cs** - Registers notification handlers
 
 ## Conditional References
@@ -21,8 +21,8 @@ Provides uSync serialization and sync support for CSP Manager configurations.
 
 ## Key Behaviors
 
-- Serializes: Enabled, ReportOnly, ReportUri, ReportingDirective, UpgradeInsecureRequests, Sources, and `DomainKey` (domain policies only)
+- Serializes: Enabled, ReportOnly, ReportUri, ReportingDirective, UpgradeInsecureRequests, Sources, and `ContentKey` (domain policies only; the content node's key, stable across environments)
 - Items: backoffice, frontend, and all domain policies under uSync group "Settings"
-- Domain policies: created on import if hostname exists on target; updates existing policy if present; fails if reassigning to another domain
+- Domain policies: created on import if the content node exists on target; updates existing policy if present; fails if reassigning to another content node
 - Validation: `DeserializeCoreAsync` runs `CspDefinitionValidator` and fails items containing invalid tokens or directives
 - Deletions: global policies cannot be deleted; domain policy delete markers delete policies on import

@@ -20,7 +20,7 @@ public sealed class InitialCspManagerMigration : AsyncMigrationBase
 		{
 			Create.Table<CspDefinitionSchema>().Do();
 			// Insert through the schema type, not CspDefinition: the table is created with the columns
-			// as they were at this migration, and CspDefinition has since gained columns (DomainKey)
+			// as they were at this migration, and CspDefinition has since gained columns (ContentKey)
 			// that later migrations add. Inserting the current model would fail on a fresh install.
 			await Context.Database.InsertAsync<CspDefinitionSchema>(new()
 			{

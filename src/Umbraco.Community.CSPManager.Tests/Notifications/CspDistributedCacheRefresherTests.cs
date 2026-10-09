@@ -81,12 +81,12 @@ public class CspDistributedCacheRefresherTests
 	[Test]
 	public void Refresh_WithDomainPayload_ClearsOnlyThatDomainsCacheKey()
 	{
-		var domainKey = Guid.NewGuid();
-		var payload = new[] { new CspSavedNotification(new CspDefinition { Id = Guid.NewGuid(), DomainKey = domainKey }) };
+		var contentKey = Guid.NewGuid();
+		var payload = new[] { new CspSavedNotification(new CspDefinition { Id = Guid.NewGuid(), ContentKey = contentKey }) };
 
 		_refresher.Refresh(payload);
 
-		_runtimeCache.Verify(c => c.ClearByKey(Constants.DomainCacheKey(domainKey)), Times.Once);
+		_runtimeCache.Verify(c => c.ClearByKey(Constants.DomainCacheKey(contentKey)), Times.Once);
 		_runtimeCache.Verify(c => c.ClearByKey(Constants.FrontEndCacheKey), Times.Never);
 		_runtimeCache.Verify(c => c.ClearByKey(Constants.BackOfficeCacheKey), Times.Never);
 	}

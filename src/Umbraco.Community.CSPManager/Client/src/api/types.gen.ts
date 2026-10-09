@@ -9,9 +9,9 @@ export type CspApiDefinition = {
 	enabled: boolean;
 	reportOnly: boolean;
 	isBackOffice: boolean;
-	domainKey?: null | string;
-	domainName?: null | string;
-	rootContentKey?: null | string;
+	contentKey?: null | string;
+	contentName?: null | string;
+	domains: Array<CspApiDomainName>;
 	disabledDomainPolicyBehavior?: null | DisabledDomainPolicyBehavior;
 	reportingDirective?: null | string;
 	reportUri?: null | string;
@@ -25,20 +25,23 @@ export type CspApiDefinitionSource = {
 	directives: Array<string>;
 };
 
+export type CspApiDomainName = {
+	name: string;
+	culture?: null | string;
+};
+
 export type CspApiDomainPolicy = {
 	id: string;
-	domainKey: string;
-	domainName?: null | string;
+	contentKey: string;
+	contentName?: null | string;
 	enabled: boolean;
 	isOrphaned: boolean;
 };
 
-export type CspDomainInfo = {
-	key: string;
-	name: string;
-	culture?: null | string;
-	rootContentKey?: null | string;
-	rootContentName?: null | string;
+export type CspDomainNodeInfo = {
+	contentKey: string;
+	contentName: string;
+	domains: Array<CspApiDomainName>;
 	hasCspPolicy: boolean;
 	cspDefinitionId?: null | string;
 };
@@ -58,7 +61,7 @@ export type GetDefinitionsData = {
 	path?: never;
 	query?: {
 		isBackOffice?: boolean;
-		domainKey?: string;
+		contentKey?: string;
 	};
 	url: '/umbraco/csp/api/v1/Definitions';
 };
@@ -124,47 +127,6 @@ export type DeleteDefinitionsByIdResponses = {
 	200: unknown;
 };
 
-export type PostDefinitionsByIdMoveData = {
-	body?: never;
-	path: {
-		id: string;
-	};
-	query?: {
-		domainKey?: string;
-	};
-	url: '/umbraco/csp/api/v1/Definitions/{id}/move';
-};
-
-export type PostDefinitionsByIdMoveErrors = {
-	/**
-	 * Bad Request
-	 */
-	400: ProblemDetails;
-	/**
-	 * The resource is protected and requires an authentication token
-	 */
-	401: unknown;
-	/**
-	 * The authenticated user does not have access to this resource
-	 */
-	403: unknown;
-	/**
-	 * Not Found
-	 */
-	404: unknown;
-};
-
-export type PostDefinitionsByIdMoveError = PostDefinitionsByIdMoveErrors[keyof PostDefinitionsByIdMoveErrors];
-
-export type PostDefinitionsByIdMoveResponses = {
-	/**
-	 * OK
-	 */
-	200: CspApiDefinition;
-};
-
-export type PostDefinitionsByIdMoveResponse = PostDefinitionsByIdMoveResponses[keyof PostDefinitionsByIdMoveResponses];
-
 export type GetDefinitionsByIdData = {
 	body?: never;
 	path: {
@@ -202,7 +164,7 @@ export type PostDefinitionsCreateFromFrontendData = {
 	body?: never;
 	path?: never;
 	query?: {
-		domainKey?: string;
+		contentKey?: string;
 	};
 	url: '/umbraco/csp/api/v1/Definitions/create-from-frontend';
 };
@@ -349,7 +311,7 @@ export type GetDomainsResponses = {
 	/**
 	 * OK
 	 */
-	200: Array<CspDomainInfo>;
+	200: Array<CspDomainNodeInfo>;
 };
 
 export type GetDomainsResponse = GetDomainsResponses[keyof GetDomainsResponses];

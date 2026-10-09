@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Umbraco.Cms.Core;
 using Umbraco.Cms.Core.Events;
+using Umbraco.Cms.Core.Models;
 using Umbraco.Cms.Core.Services;
 using Umbraco.Cms.Core.Web;
 using Umbraco.Community.CSPManager.Extensions;
@@ -29,8 +30,9 @@ namespace Umbraco.Community.CSPManager.Middleware;
 /// It also respects the <see cref="CspManagerOptions.DisableBackOfficeHeader"/> configuration option.
 /// </para>
 /// <para>
-/// A frontend request that Umbraco routed through a domain (Culture &amp; Hostnames) with a domain
-/// policy gets that policy instead of the global frontend policy. A disabled domain policy follows
+/// A frontend request that Umbraco routed through a hostname (Culture &amp; Hostnames) gets the domain
+/// policy of the content node that hostname is assigned to, if it has one, instead of the global
+/// frontend policy. Every hostname of a node (e.g. one per culture) shares that policy. A disabled domain policy follows
 /// <see cref="CspManagerOptions.DisabledDomainPolicyBehavior"/>. Backoffice requests never use
 /// domain policies.
 /// </para>
@@ -43,6 +45,7 @@ public class CspMiddleware
 	private readonly IEventAggregator _eventAggregator;
 	private readonly ILogger<CspMiddleware> _logger;
 	private readonly IUmbracoContextAccessor _umbracoContextAccessor;
+	private readonly IIdKeyMap _idKeyMap;
 	private CspManagerOptions _cspOptions;
 
 	/// <summary>
@@ -55,6 +58,7 @@ public class CspMiddleware
 	/// <param name="cspOptions">The CSP Manager configuration options.</param>
 	/// <param name="logger">The logger for diagnostic output.</param>
 	/// <param name="umbracoContextAccessor">Gives access to the routed request's domain.</param>
+	/// <param name="idKeyMap">Maps the routed domain's content node id to the key its policy is stored against.</param>
 	public CspMiddleware(
 		RequestDelegate next,
 		IRuntimeState runtimeState,
@@ -62,7 +66,8 @@ public class CspMiddleware
 		IEventAggregator eventAggregator,
 		IOptionsMonitor<CspManagerOptions> cspOptions,
 		ILogger<CspMiddleware> logger,
-		IUmbracoContextAccessor umbracoContextAccessor)
+		IUmbracoContextAccessor umbracoContextAccessor,
+		IIdKeyMap idKeyMap)
 	{
 		_next = next;
 		_runtimeState = runtimeState;
@@ -70,6 +75,7 @@ public class CspMiddleware
 		_eventAggregator = eventAggregator;
 		_logger = logger;
 		_umbracoContextAccessor = umbracoContextAccessor;
+		_idKeyMap = idKeyMap;
 
 		cspOptions.OnChange(config =>
 		{
@@ -171,7 +177,7 @@ public class CspMiddleware
 	{
 		try
 		{
-			// Wildcard (culture-only) domains never carry a policy.
+			// Wildcard (culture-only) domains only set the culture; a request is never routed by one.
 			if (!_umbracoContextAccessor.TryGetUmbracoContext(out var umbracoContext)
 				|| umbracoContext.PublishedRequest?.Domain is not { IsWildcard: false } domain
 				|| string.IsNullOrWhiteSpace(domain.Name))
@@ -179,11 +185,17 @@ public class CspMiddleware
 				return null;
 			}
 
-			// Derived from the name, so no lookup is needed to map the routed domain to its policy.
-			var domainKey = CspDomainKey.FromDomainName(domain.Name);
+			// IIdKeyMap caches the mapping, so after the first request this costs no database call.
+			var nodeKey = _idKeyMap.GetKeyForId(domain.ContentId, UmbracoObjectTypes.Document);
+			if (!nodeKey.Success)
+			{
+				return null;
+			}
+
+			var contentKey = nodeKey.Result;
 
 			// Shared cache again, so not context.RequestAborted (see the global lookup).
-			var definition = await _cspService.GetCachedCspDefinitionForDomainAsync(domainKey, CancellationToken.None);
+			var definition = await _cspService.GetCachedCspDefinitionForDomainAsync(contentKey, CancellationToken.None);
 			if (definition is null)
 			{
 				return null;
@@ -191,7 +203,7 @@ public class CspMiddleware
 
 			if (definition.Enabled || _cspOptions.DisabledDomainPolicyBehavior == DisabledDomainPolicyBehavior.NoHeader)
 			{
-				Log.CspDomainPolicyApplied(_logger, definition.Id, domainKey, context.Request.Path);
+				Log.CspDomainPolicyApplied(_logger, definition.Id, contentKey, context.Request.Path);
 				return definition;
 			}
 

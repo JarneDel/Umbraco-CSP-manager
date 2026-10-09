@@ -58,29 +58,29 @@ public class CspSavedNotificationHandlerTests
 	[Test]
 	public void Handle_DomainPolicySave_ClearsOnlyThatDomainsCacheKey()
 	{
-		var domainKey = Guid.NewGuid();
-		var notification = new CspSavedNotification(new CspDefinition { Id = Guid.NewGuid(), DomainKey = domainKey });
+		var contentKey = Guid.NewGuid();
+		var notification = new CspSavedNotification(new CspDefinition { Id = Guid.NewGuid(), ContentKey = contentKey });
 
 		_handler.Handle(notification);
 
-		_runtimeCache.Verify(c => c.ClearByKey(Constants.DomainCacheKey(domainKey)), Times.Once);
+		_runtimeCache.Verify(c => c.ClearByKey(Constants.DomainCacheKey(contentKey)), Times.Once);
 		_runtimeCache.Verify(c => c.ClearByKey(Constants.FrontEndCacheKey), Times.Never);
 	}
 
 	[Test]
 	public void Handle_DomainPolicyDelete_ClearsTheDomainCacheKeyAndBroadcasts()
 	{
-		var domainKey = Guid.NewGuid();
-		var notification = new CspDeletedNotification(new CspDefinition { Id = Guid.NewGuid(), DomainKey = domainKey });
+		var contentKey = Guid.NewGuid();
+		var notification = new CspDeletedNotification(new CspDefinition { Id = Guid.NewGuid(), ContentKey = contentKey });
 
 		_handler.Handle(notification);
 
-		_runtimeCache.Verify(c => c.ClearByKey(Constants.DomainCacheKey(domainKey)), Times.Once);
+		_runtimeCache.Verify(c => c.ClearByKey(Constants.DomainCacheKey(contentKey)), Times.Once);
 		_runtimeCache.Verify(c => c.ClearByKey(Constants.FrontEndCacheKey), Times.Never);
 		Assert.That(_serverMessenger.PayloadRefreshCount, Is.EqualTo(1),
 			"a delete must invalidate the other servers too");
 		var payload = _serverMessenger.LastPayload.Cast<CspSavedNotification>().Single();
-		Assert.That(payload.CspDefinition.DomainKey, Is.EqualTo(domainKey),
+		Assert.That(payload.CspDefinition.ContentKey, Is.EqualTo(contentKey),
 			"the broadcast payload must identify the deleted domain policy's cache entry");
 	}
 

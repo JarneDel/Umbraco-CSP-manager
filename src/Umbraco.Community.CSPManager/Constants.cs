@@ -27,9 +27,9 @@ public static partial class Constants
 	public const string DomainCacheKeyPrefix = "csp-domain-";
 
 	/// <summary>
-	/// Gets the cache key of the domain policy with the given domain key (see <see cref="Models.CspDomainKey"/>).
+	/// Gets the cache key of the domain policy of the content node with the given key.
 	/// </summary>
-	public static string DomainCacheKey(Guid domainKey) => $"{DomainCacheKeyPrefix}{domainKey:D}";
+	public static string DomainCacheKey(Guid contentKey) => $"{DomainCacheKeyPrefix}{contentKey:D}";
 
 	public const string HeaderName = "Content-Security-Policy";
 

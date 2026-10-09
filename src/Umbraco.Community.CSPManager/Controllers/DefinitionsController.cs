@@ -21,15 +21,15 @@ namespace Umbraco.Community.CSPManager.Controllers;
 public class DefinitionsController : CspManagerControllerBase
 {
 	private readonly ICspService _cspService;
-	private readonly CspDomainLookup _domainLookup;
+	private readonly CspDomainNodeLookup _domainNodes;
 	private readonly IOptionsMonitor<CspManagerOptions> _options;
 
 	/// <summary>
 	/// Initializes a new instance of the <see cref="DefinitionsController"/> class.
 	/// </summary>
 	/// <param name="cspService">The CSP service for managing definitions.</param>
-	/// <param name="domainService">The Umbraco domain service, to resolve domain names.</param>
-	/// <param name="entityService">The Umbraco entity service, to resolve the content a domain is assigned to.</param>
+	/// <param name="domainService">The Umbraco domain service, to resolve the hostnames of a node.</param>
+	/// <param name="entityService">The Umbraco entity service, to resolve content node names.</param>
 	/// <param name="options">The CSP Manager options.</param>
 	public DefinitionsController(
 		ICspService cspService,
@@ -38,36 +38,36 @@ public class DefinitionsController : CspManagerControllerBase
 		IOptionsMonitor<CspManagerOptions> options)
 	{
 		_cspService = cspService;
-		_domainLookup = new CspDomainLookup(domainService, entityService);
+		_domainNodes = new CspDomainNodeLookup(domainService, entityService);
 		_options = options;
 	}
 
 	/// <summary>
-	/// Retrieves the global CSP definition for the specified context, or the policy of a domain.
+	/// Retrieves the global CSP definition for the specified context, or the domain policy of a content node.
 	/// </summary>
 	/// <param name="isBackOffice">
 	/// <c>true</c> to retrieve the backoffice CSP policy; <c>false</c> for the frontend policy.
-	/// Defaults to <c>false</c>. Ignored when <paramref name="domainKey"/> is given.
+	/// Defaults to <c>false</c>. Ignored when <paramref name="contentKey"/> is given.
 	/// </param>
-	/// <param name="domainKey">The key of an Umbraco domain, to retrieve that domain's policy.</param>
+	/// <param name="contentKey">The key of a content node, to retrieve that node's domain policy.</param>
 	/// <param name="cancellationToken">A cancellation token to observe while waiting for the task to complete.</param>
 	/// <returns>The <see cref="CspApiDefinition"/> for the specified context.</returns>
-	/// <response code="404">A <paramref name="domainKey"/> was given and that domain has no policy.</response>
+	/// <response code="404">A <paramref name="contentKey"/> was given and that node has no domain policy.</response>
 	[HttpGet("Definitions")]
 	[MapToApiVersion("1.0")]
 	[ProducesResponseType(typeof(CspApiDefinition), 200)]
 	[ProducesResponseType(404)]
 	public async Task<ActionResult<CspApiDefinition>> GetDefinition(
 		bool isBackOffice = false,
-		Guid? domainKey = null,
+		Guid? contentKey = null,
 		CancellationToken cancellationToken = default)
 	{
-		if (domainKey is null)
+		if (contentKey is null)
 		{
 			return CspApiDefinition.FromCspDefinition(await _cspService.GetCspDefinitionAsync(isBackOffice, cancellationToken));
 		}
 
-		var definition = await _cspService.GetCspDefinitionForDomainAsync(domainKey.Value, cancellationToken);
+		var definition = await _cspService.GetCspDefinitionForDomainAsync(contentKey.Value, cancellationToken);
 		return definition is null ? NotFound() : await ToApiDefinitionAsync(definition);
 	}
 
@@ -89,33 +89,39 @@ public class DefinitionsController : CspManagerControllerBase
 	}
 
 	/// <summary>
-	/// Lists every domain policy, including orphaned ones whose domain has been removed.
+	/// Lists every domain policy, including orphaned ones whose node was deleted or lost its hostnames.
 	/// </summary>
 	/// <param name="cancellationToken">A cancellation token to observe while waiting for the task to complete.</param>
-	/// <returns>The domain policies, ordered by domain name.</returns>
+	/// <returns>The domain policies, ordered by content node name; orphans last.</returns>
 	[HttpGet("Definitions/domain-policies")]
 	[MapToApiVersion("1.0")]
 	[ProducesResponseType(typeof(IEnumerable<CspApiDomainPolicy>), 200)]
 	public async Task<ActionResult<IEnumerable<CspApiDomainPolicy>>> GetDomainPolicies(CancellationToken cancellationToken = default)
 	{
 		var policies = await _cspService.GetAllDomainPoliciesAsync(cancellationToken);
-		var domains = await _domainLookup.GetDomainsAsync();
+		var nodes = (await _domainNodes.GetDomainNodesAsync()).ToDictionary(n => n.Key);
+
+		// An orphan's node may still exist without a hostname (or in the recycle bin), so its name is
+		// looked up separately, in one query for all orphans.
+		var orphanNames = _domainNodes.GetContentNames(
+			policies.Select(p => p.ContentKey!.Value).Where(k => !nodes.ContainsKey(k)));
 
 		var result = policies
 			.Select(p =>
 			{
-				var domain = domains.TryGetValue(p.DomainKey!.Value, out var details) ? details : null;
+				var contentKey = p.ContentKey!.Value;
+				var node = nodes.GetValueOrDefault(contentKey);
 				return new CspApiDomainPolicy
 				{
 					Id = p.Id,
-					DomainKey = p.DomainKey.Value,
-					DomainName = domain?.Name,
+					ContentKey = contentKey,
+					ContentName = node?.Name ?? orphanNames.GetValueOrDefault(contentKey),
 					Enabled = p.Enabled,
-					IsOrphaned = domain is null,
+					IsOrphaned = node is null,
 				};
 			})
 			.OrderBy(p => p.IsOrphaned)
-			.ThenBy(p => p.DomainName, StringComparer.OrdinalIgnoreCase)
+			.ThenBy(p => p.ContentName, StringComparer.OrdinalIgnoreCase)
 			.ToList();
 
 		return Ok(result);
@@ -131,10 +137,10 @@ public class DefinitionsController : CspManagerControllerBase
 	/// or a validation problem details object if the model state is invalid.
 	/// </returns>
 	/// <remarks>
-	/// Saves global or domain policies. Posting <see cref="Guid.Empty"/> with a domain key creates a new policy with a server-assigned ID.
+	/// Saves global or domain policies. Posting <see cref="Guid.Empty"/> with a content key creates a new policy with a server-assigned ID.
 	/// </remarks>
 	/// <response code="200">The definition was saved successfully.</response>
-	/// <response code="400">The definition failed validation (e.g., duplicate sources, invalid ID, changed domain).</response>
+	/// <response code="400">The definition failed validation (e.g., duplicate sources, invalid ID, changed content node).</response>
 	/// <response code="404">The definition is a domain policy that doesn't exist.</response>
 	[HttpPost("Definitions/save")]
 	[MapToApiVersion("1.0")]
@@ -150,7 +156,7 @@ public class DefinitionsController : CspManagerControllerBase
 
 		// A domain policy is created by posting Guid.Empty; any other id must already exist, so a
 		// caller can't create a policy under an id of its choosing.
-		if (definition.DomainKey is not null
+		if (definition.ContentKey is not null
 			&& definition.Id != Guid.Empty
 			&& await _cspService.GetCspDefinitionAsync(definition.Id, cancellationToken) is null)
 		{
@@ -169,22 +175,22 @@ public class DefinitionsController : CspManagerControllerBase
 	}
 
 	/// <summary>
-	/// Creates a domain policy for an Umbraco domain as a copy of the global frontend policy.
+	/// Creates a domain policy for a content node as an enabled copy of the global frontend policy.
 	/// </summary>
-	/// <param name="domainKey">The key (see <see cref="CspDomainKey.FromDomainName"/>) of a non-wildcard Umbraco domain that has no policy yet.</param>
+	/// <param name="contentKey">The key of a content node with a hostname (non-wildcard domain) that has no domain policy yet.</param>
 	/// <param name="cancellationToken">A cancellation token to observe while waiting for the task to complete.</param>
 	/// <returns>The new domain policy.</returns>
 	/// <response code="200">The domain policy was created.</response>
-	/// <response code="400">The domain doesn't exist, is a wildcard domain, or already has a policy.</response>
+	/// <response code="400">The node doesn't exist, has no hostname, or already has a domain policy.</response>
 	[HttpPost("Definitions/create-from-frontend")]
 	[MapToApiVersion("1.0")]
 	[ProducesResponseType(typeof(CspApiDefinition), 200)]
 	[ProducesResponseType(typeof(ProblemDetails), 400)]
-	public async Task<IActionResult> CreateFromFrontend([FromQuery] Guid domainKey, CancellationToken cancellationToken = default)
+	public async Task<IActionResult> CreateFromFrontend([FromQuery] Guid contentKey, CancellationToken cancellationToken = default)
 	{
 		try
 		{
-			var created = await _cspService.CreateCspDefinitionForDomainAsync(domainKey, cancellationToken);
+			var created = await _cspService.CreateCspDefinitionForDomainAsync(contentKey, cancellationToken);
 			return Ok(await ToApiDefinitionAsync(created));
 		}
 		catch (CspDefinitionValidationException ex)
@@ -225,48 +231,19 @@ public class DefinitionsController : CspManagerControllerBase
 		}
 	}
 
-	/// <summary>
-	/// Moves an orphaned domain policy to an active domain without an assigned policy.
-	/// </summary>
-	/// <param name="id">The id of the orphaned domain policy.</param>
-	/// <param name="domainKey">The key of a non-wildcard Umbraco domain that has no policy yet.</param>
-	/// <param name="cancellationToken">A cancellation token.</param>
-	/// <returns>The policy under its new domain and id.</returns>
-	/// <response code="200">The policy was moved.</response>
-	/// <response code="400">The id is not an orphaned domain policy, or the target domain is invalid or already assigned.</response>
-	/// <response code="404">There is no definition with that id.</response>
-	[HttpPost("Definitions/{id:guid}/move")]
-	[MapToApiVersion("1.0")]
-	[ProducesResponseType(typeof(CspApiDefinition), 200)]
-	[ProducesResponseType(typeof(ProblemDetails), 400)]
-	[ProducesResponseType(404)]
-	public async Task<IActionResult> MoveDomainPolicy(Guid id, [FromQuery] Guid domainKey, CancellationToken cancellationToken = default)
-	{
-		if (id != Constants.DefaultFrontEndId && id != Constants.DefaultBackofficeId
-			&& await _cspService.GetCspDefinitionAsync(id, cancellationToken) is null)
-		{
-			return NotFound();
-		}
-
-		try
-		{
-			var moved = await _cspService.MoveDomainPolicyAsync(id, domainKey, cancellationToken);
-			return Ok(await ToApiDefinitionAsync(moved));
-		}
-		catch (CspDefinitionValidationException ex)
-		{
-			return CspValidationProblem(ex);
-		}
-	}
-
 	private async Task<CspApiDefinition> ToApiDefinitionAsync(CspDefinition definition)
 	{
-		var domain = await _domainLookup.GetDomainAsync(definition.DomainKey);
+		if (definition.ContentKey is not { } contentKey)
+		{
+			return CspApiDefinition.FromCspDefinition(definition);
+		}
+
+		var node = await _domainNodes.GetDomainNodeAsync(contentKey);
 		return CspApiDefinition.FromCspDefinition(
 			definition,
-			domain?.Name,
-			_options.CurrentValue.DisabledDomainPolicyBehavior,
-			domain?.RootContentKey);
+			node?.Name ?? _domainNodes.GetContentNames([contentKey]).GetValueOrDefault(contentKey),
+			node?.Domains.Select(d => new CspApiDomainName { Name = d.Name, Culture = d.Culture }),
+			_options.CurrentValue.DisabledDomainPolicyBehavior);
 	}
 
 	private BadRequestObjectResult CspValidationProblem(CspDefinitionValidationException ex)

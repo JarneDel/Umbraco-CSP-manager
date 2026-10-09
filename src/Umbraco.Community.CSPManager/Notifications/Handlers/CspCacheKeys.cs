@@ -8,7 +8,7 @@ internal static class CspCacheKeys
 	/// Gets the runtime cache key a definition is cached under.
 	/// </summary>
 	public static string For(CspDefinition definition)
-		=> definition.DomainKey is { } domainKey
-			? Constants.DomainCacheKey(domainKey)
+		=> definition.ContentKey is { } contentKey
+			? Constants.DomainCacheKey(contentKey)
 			: definition.IsBackOffice ? Constants.BackOfficeCacheKey : Constants.FrontEndCacheKey;
 }
